@@ -2,7 +2,7 @@
 
 Tablero Kanban multiusuario: varias personas trabajan en el mismo tablero y ven los cambios de los demás al instante, sin recargar. Incluye cuentas de usuario, tableros compartidos con roles y permisos validados tanto en la API como en el canal en tiempo real.
 
-![CI](https://github.com/TU_USUARIO/kanban-tiempo-real/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/newbothi/kanban-tiempo-real/actions/workflows/ci.yml/badge.svg)
 
 ![Dos usuarios trabajando en el mismo tablero](docs/dos-usuarios.png)
 
