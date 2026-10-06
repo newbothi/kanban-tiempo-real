@@ -1,0 +1,23 @@
+{
+  "name": "kanban",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev -w @kanban/api",
+    "dev:web": "npm run dev -w @kanban/web",
+    "build": "npm run build -w @kanban/web",
+    "start": "npm run start -w @kanban/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test -w @kanban/shared && npm run test -w @kanban/api",
+    "test:unit": "npm run test -w @kanban/shared",
+    "test:api": "npm run test -w @kanban/api",
+    "test:e2e": "npm run test:e2e -w @kanban/web"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.2",
+    "mysql2": "^3.24.5"
+  }
+}

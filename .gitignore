@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Secretos: nunca al repositorio (solo los .example)
+.env
+.env.test
+
+# Generado por Prisma
+apps/api/src/generated/
+
+# Playwright
+test-results/
+playwright-report/

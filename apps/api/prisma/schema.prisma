@@ -1,0 +1,69 @@
+// Prisma 7: la URL de conexión vive en prisma.config.ts (no aquí)
+// y el cliente se conecta a SQL Server a través del adaptador @prisma/adapter-mssql.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlserver"
+}
+
+model User {
+  id           String        @id @default(uuid()) @db.VarChar(36)
+  /// Siempre en minúsculas (se normaliza en la API).
+  email        String        @unique @db.NVarChar(254)
+  name         String        @db.NVarChar(100)
+  passwordHash String        @db.VarChar(100)
+  createdAt    DateTime      @default(now())
+  memberships  BoardMember[]
+}
+
+model Board {
+  id        String        @id @default(uuid()) @db.VarChar(36)
+  name      String        @db.NVarChar(200)
+  createdAt DateTime      @default(now())
+  columns   Column[]
+  members   BoardMember[]
+}
+
+/// Quién puede ver un tablero y con qué rol.
+/// role: "owner" | "member" (SQL Server no tiene enums: se valida en la API).
+model BoardMember {
+  boardId   String   @db.VarChar(36)
+  userId    String   @db.VarChar(36)
+  role      String   @db.VarChar(20)
+  createdAt DateTime @default(now())
+  board     Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([boardId, userId])
+  @@index([userId])
+}
+
+model Column {
+  id       String @id @default(uuid()) @db.VarChar(36)
+  boardId  String @db.VarChar(36)
+  title    String @db.NVarChar(100)
+  // Clave de fractional indexing. En la migración se le asigna COLLATE Latin1_General_BIN2
+  // para que ORDER BY respete mayúsculas/minúsculas byte a byte.
+  position String @db.VarChar(255)
+  board    Board  @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  cards    Card[]
+
+  @@index([boardId, position])
+}
+
+model Card {
+  id        String   @id @default(uuid()) @db.VarChar(36)
+  columnId  String   @db.VarChar(36)
+  title     String   @db.NVarChar(500)
+  // Igual que Column.position: collation binaria en la migración.
+  position  String   @db.VarChar(255)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  column    Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
+
+  @@index([columnId, position])
+}
