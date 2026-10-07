@@ -166,6 +166,22 @@ npm start              # la API sirve la API, el WebSocket y el front en un solo
 
 En el hosting hay que definir `NODE_ENV=production`, `DATABASE_URL` y `JWT_SECRET`, y ejecutar `npm run db:deploy -w @kanban/api` antes de arrancar.
 
+## Despliegue (Docker + Azure)
+
+```mermaid
+flowchart LR
+  P[push a main] --> CI[GitHub Actions<br/>tests]
+  CI -- todo verde --> IMG[Imagen Docker<br/>ghcr.io/newbothi/kanban-tiempo-real]
+  IMG --> AS[Azure App Service<br/>Linux, contenedor]
+  AS --> SQL[(Azure SQL Database)]
+```
+
+- El `Dockerfile` es multi-etapa: compila el front, genera Prisma y deja solo las dependencias de producción. Corre como usuario sin privilegios.
+- El CI publica la imagen **solo si pasan todos los tests**.
+- Azure App Service ejecuta el contenedor, que sirve la web, la API y el WebSocket en un único origen, así que no hace falta CORS y la cookie `Secure` funciona sobre HTTPS.
+- Variables en Azure: `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV=production` y `WEBSITES_PORT=3000`.
+- Ante errores internos, el cliente recibe un mensaje genérico. El detalle queda solo en el log.
+
 ## Estructura
 
 ```

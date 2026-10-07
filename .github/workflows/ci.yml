@@ -65,3 +65,37 @@ jobs:
           name: playwright-report
           path: apps/web/playwright-report
           retention-days: 7
+
+  docker:
+    name: Imagen Docker → GHCR
+    # Solo si TODO lo anterior pasó y es un push a main.
+    needs: [check, integration]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      # Opcional: URL del webhook de Azure (Centro de implementación) para redesplegar solo.
+      AZURE_WEBHOOK: ${{ secrets.AZURE_WEBAPP_WEBHOOK }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Avisar a Azure para que descargue la imagen nueva
+        if: env.AZURE_WEBHOOK != ''
+        run: curl -fsS -X POST "$AZURE_WEBHOOK" -o /dev/null

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import fastifyStatic from '@fastify/static';
 import { SOCKET_ID_HEADER } from '@kanban/shared';
@@ -36,6 +36,17 @@ export async function buildApp(opts: BuildOptions = {}) {
     credentials: true, // permite enviar la cookie de sesión
     methods: ['GET', 'POST', 'PATCH', 'DELETE'],
     allowedHeaders: ['Content-Type', SOCKET_ID_HEADER],
+  });
+
+  // Errores inesperados: el detalle va al log, nunca al cliente
+  // (los mensajes de Prisma incluyen rutas de archivos y partes de la consulta).
+  app.setErrorHandler((err: FastifyError, req, reply) => {
+    const status = err.statusCode ?? 500;
+    if (status >= 500) {
+      req.log.error(err);
+      return reply.code(500).send({ error: 'InternalServerError', message: 'Error interno del servidor' });
+    }
+    return reply.code(status).send({ error: err.code ?? 'Error', message: err.message });
   });
 
   app.get('/health', async () => {
