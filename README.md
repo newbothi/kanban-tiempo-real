@@ -4,6 +4,11 @@ Tablero Kanban multiusuario: varias personas trabajan en el mismo tablero y ven 
 
 ![CI](https://github.com/newbothi/kanban-tiempo-real/actions/workflows/ci.yml/badge.svg)
 
+**Demo en vivo:** https://kanban-newbothi.azurewebsites.net<br>
+Usuario demo: `demo@kanban.cl` / `demo1234`. También puedes crear tu cuenta y abrir la demo en dos navegadores para ver la sincronización.
+
+> Está alojada en niveles gratuitos de Azure: si nadie la usa por un rato, la primera carga puede tardar entre 30 y 60 segundos mientras despiertan el servidor y la base de datos.
+
 ![Dos usuarios trabajando en el mismo tablero](docs/dos-usuarios.png)
 
 <table>
