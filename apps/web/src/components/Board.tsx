@@ -15,9 +15,9 @@ import { arrayMove, sortableKeyboardCoordinates } from '@dnd-kit/sortable';
 import { cardsOf, positionForMove, sortByPosition, type BoardDto, type CardDto } from '@kanban/shared';
 import { useCreateCard, useDeleteCard, useMoveCard } from '../api/queries';
 import { ColumnView } from './ColumnView';
-import { CardItem } from './CardItem';
+import { CardItem, type CardInsight } from './CardItem';
 
-export function Board({ board }: { board: BoardDto }) {
+export function Board({ board, insights }: { board: BoardDto; insights?: Map<string, CardInsight> }) {
   const moveCard = useMoveCard(board.id);
   const deleteCard = useDeleteCard(board.id);
   const createCard = useCreateCard(board.id);
@@ -111,6 +111,7 @@ export function Board({ board }: { board: BoardDto }) {
             cards={cardsOf(cards, col.id)}
             onAdd={(columnId, title) => createCard.mutateAsync({ columnId, title })}
             onDelete={deleteCard}
+            insights={insights}
           />
         ))}
       </div>

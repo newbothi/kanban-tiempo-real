@@ -1,0 +1,752 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Kanban ML",
+    "description": "Throughput, tendencia, pronóstico Monte Carlo, predicción de tiempos y tarjetas estancadas.",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/analyze": {
+      "post": {
+        "summary": "Analyze Board",
+        "operationId": "analyze_board_analyze_post",
+        "parameters": [
+          {
+            "name": "x-ml-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Ml-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnalyzeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalyzeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalyzeRequest": {
+        "properties": {
+          "now": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Now"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ColumnIn"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "cards": {
+            "items": {
+              "$ref": "#/components/schemas/CardIn"
+            },
+            "type": "array",
+            "title": "Cards"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/EventIn"
+            },
+            "type": "array",
+            "title": "Events"
+          },
+          "simulations": {
+            "type": "integer",
+            "maximum": 50000.0,
+            "minimum": 1000.0,
+            "title": "Simulations",
+            "default": 10000
+          }
+        },
+        "type": "object",
+        "required": [
+          "now",
+          "columns",
+          "cards",
+          "events"
+        ],
+        "title": "AnalyzeRequest"
+      },
+      "AnalyzeResponse": {
+        "properties": {
+          "generatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generatedat"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/Summary"
+          },
+          "throughput": {
+            "items": {
+              "$ref": "#/components/schemas/WeekPoint"
+            },
+            "type": "array",
+            "title": "Throughput"
+          },
+          "trend": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Trend"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "forecast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Forecast"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cycleTime": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CycleTime"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stale": {
+            "items": {
+              "$ref": "#/components/schemas/StaleCard"
+            },
+            "type": "array",
+            "title": "Stale"
+          },
+          "insights": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Insights",
+            "description": "Conclusiones en lenguaje natural para mostrar en la UI"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generatedAt",
+          "summary",
+          "throughput",
+          "trend",
+          "forecast",
+          "cycleTime",
+          "stale",
+          "insights",
+          "warnings"
+        ],
+        "title": "AnalyzeResponse"
+      },
+      "CardIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "columnId": {
+            "type": "string",
+            "title": "Columnid"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "columnId",
+          "createdAt"
+        ],
+        "title": "CardIn"
+      },
+      "CardPrediction": {
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "title": "Cardid"
+          },
+          "predictedLeadTimeDays": {
+            "type": "number",
+            "title": "Predictedleadtimedays"
+          },
+          "elapsedDays": {
+            "type": "number",
+            "title": "Elapseddays"
+          },
+          "remainingDays": {
+            "type": "number",
+            "title": "Remainingdays"
+          },
+          "overdue": {
+            "type": "boolean",
+            "title": "Overdue",
+            "description": "Ya lleva más tiempo que lo predicho"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cardId",
+          "predictedLeadTimeDays",
+          "elapsedDays",
+          "remainingDays",
+          "overdue"
+        ],
+        "title": "CardPrediction"
+      },
+      "ColumnIn": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "position": {
+            "type": "string",
+            "title": "Position",
+            "description": "Clave de orden (fractional indexing). La menor es la primera columna."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "position"
+        ],
+        "title": "ColumnIn"
+      },
+      "CycleTime": {
+        "properties": {
+          "nTrain": {
+            "type": "integer",
+            "title": "Ntrain"
+          },
+          "bestModel": {
+            "type": "string",
+            "enum": [
+              "baseline_median",
+              "linear_regression",
+              "gradient_boosting"
+            ],
+            "title": "Bestmodel"
+          },
+          "scores": {
+            "items": {
+              "$ref": "#/components/schemas/ModelScore"
+            },
+            "type": "array",
+            "title": "Scores"
+          },
+          "wipEffectDays": {
+            "type": "number",
+            "title": "Wipeffectdays",
+            "description": "Días extra por cada tarjeta adicional en curso (coeficiente lineal)"
+          },
+          "kindEffectDays": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Kindeffectdays",
+            "description": "Efecto de cada tipo de tarea vs. el promedio (lineal)"
+          },
+          "predictions": {
+            "items": {
+              "$ref": "#/components/schemas/CardPrediction"
+            },
+            "type": "array",
+            "title": "Predictions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "nTrain",
+          "bestModel",
+          "scores",
+          "wipEffectDays",
+          "kindEffectDays",
+          "predictions"
+        ],
+        "title": "CycleTime"
+      },
+      "EventIn": {
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "title": "Cardid"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "created",
+              "moved",
+              "deleted"
+            ],
+            "title": "Type"
+          },
+          "fromColumnId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fromcolumnid"
+          },
+          "toColumnId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tocolumnid"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cardId",
+          "type",
+          "at"
+        ],
+        "title": "EventIn"
+      },
+      "Forecast": {
+        "properties": {
+          "remaining": {
+            "type": "integer",
+            "title": "Remaining"
+          },
+          "simulations": {
+            "type": "integer",
+            "title": "Simulations"
+          },
+          "weeksOfHistory": {
+            "type": "integer",
+            "title": "Weeksofhistory"
+          },
+          "p50": {
+            "$ref": "#/components/schemas/ForecastPoint"
+          },
+          "p85": {
+            "$ref": "#/components/schemas/ForecastPoint"
+          },
+          "p95": {
+            "$ref": "#/components/schemas/ForecastPoint"
+          },
+          "histogram": {
+            "items": {
+              "$ref": "#/components/schemas/HistogramBin"
+            },
+            "type": "array",
+            "title": "Histogram"
+          }
+        },
+        "type": "object",
+        "required": [
+          "remaining",
+          "simulations",
+          "weeksOfHistory",
+          "p50",
+          "p85",
+          "p95",
+          "histogram"
+        ],
+        "title": "Forecast"
+      },
+      "ForecastPoint": {
+        "properties": {
+          "weeks": {
+            "type": "integer",
+            "title": "Weeks"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weeks",
+          "date"
+        ],
+        "title": "ForecastPoint"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HistogramBin": {
+        "properties": {
+          "weeks": {
+            "type": "integer",
+            "title": "Weeks"
+          },
+          "probability": {
+            "type": "number",
+            "title": "Probability"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weeks",
+          "probability"
+        ],
+        "title": "HistogramBin"
+      },
+      "ModelScore": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "baseline_median",
+              "linear_regression",
+              "gradient_boosting"
+            ],
+            "title": "Name"
+          },
+          "maeDays": {
+            "type": "number",
+            "title": "Maedays",
+            "description": "Error absoluto medio en validación cruzada (días)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "maeDays"
+        ],
+        "title": "ModelScore"
+      },
+      "StaleCard": {
+        "properties": {
+          "cardId": {
+            "type": "string",
+            "title": "Cardid"
+          },
+          "columnId": {
+            "type": "string",
+            "title": "Columnid"
+          },
+          "daysInColumn": {
+            "type": "number",
+            "title": "Daysincolumn"
+          },
+          "typicalDays": {
+            "type": "number",
+            "title": "Typicaldays",
+            "description": "Mediana histórica de permanencia en esa columna"
+          },
+          "thresholdDays": {
+            "type": "number",
+            "title": "Thresholddays",
+            "description": "Umbral IQR: Q3 + 1,5·IQR"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cardId",
+          "columnId",
+          "daysInColumn",
+          "typicalDays",
+          "thresholdDays"
+        ],
+        "title": "StaleCard"
+      },
+      "Summary": {
+        "properties": {
+          "cardsTotal": {
+            "type": "integer",
+            "title": "Cardstotal"
+          },
+          "backlog": {
+            "type": "integer",
+            "title": "Backlog",
+            "description": "Tarjetas en la primera columna"
+          },
+          "inProgress": {
+            "type": "integer",
+            "title": "Inprogress",
+            "description": "Tarjetas en columnas intermedias"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Tarjetas en la última columna"
+          },
+          "doneLast4Weeks": {
+            "type": "integer",
+            "title": "Donelast4Weeks"
+          },
+          "leadTimeMedianDays": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leadtimemediandays"
+          },
+          "leadTimeP85Days": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Leadtimep85Days"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cardsTotal",
+          "backlog",
+          "inProgress",
+          "done",
+          "doneLast4Weeks",
+          "leadTimeMedianDays",
+          "leadTimeP85Days"
+        ],
+        "title": "Summary"
+      },
+      "Trend": {
+        "properties": {
+          "slopePerWeek": {
+            "type": "number",
+            "title": "Slopeperweek",
+            "description": "Cambio del throughput por semana (tarjetas/semana²)"
+          },
+          "intercept": {
+            "type": "number",
+            "title": "Intercept"
+          },
+          "r2": {
+            "type": "number",
+            "title": "R2"
+          },
+          "pValue": {
+            "type": "number",
+            "title": "Pvalue"
+          },
+          "slopeCi95": {
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array",
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Slopeci95"
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "flat"
+            ],
+            "title": "Direction",
+            "description": "'flat' si la pendiente no es significativa (p ≥ 0,05)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slopePerWeek",
+          "intercept",
+          "r2",
+          "pValue",
+          "slopeCi95",
+          "direction"
+        ],
+        "title": "Trend"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WeekPoint": {
+        "properties": {
+          "weekStart": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Weekstart"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done"
+          },
+          "trend": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trend",
+            "description": "Valor de la recta de regresión para esa semana"
+          }
+        },
+        "type": "object",
+        "required": [
+          "weekStart",
+          "done",
+          "trend"
+        ],
+        "title": "WeekPoint"
+      }
+    }
+  }
+}

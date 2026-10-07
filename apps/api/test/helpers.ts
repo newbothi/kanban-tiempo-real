@@ -6,6 +6,7 @@ import { prisma } from '../src/db';
 
 /** Borra todos los datos (en orden por las claves foráneas). */
 export async function resetDb() {
+  await prisma.cardEvent.deleteMany();
   await prisma.card.deleteMany();
   await prisma.column.deleteMany();
   await prisma.boardMember.deleteMany();

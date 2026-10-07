@@ -7,6 +7,7 @@ import type {
   CreateCardInput,
   LoginInput,
   MemberDto,
+  MlAnalysis,
   MoveCardInput,
   RegisterInput,
   RenameCardInput,
@@ -64,6 +65,9 @@ export const api = {
   createBoard: (input: CreateBoardInput) =>
     request<BoardSummaryDto>('/boards', { method: 'POST', body: json(input) }),
   deleteBoard: (id: string) => request<void>(`/boards/${id}`, { method: 'DELETE' }),
+
+  // Métricas (servicio ML en Python, a través de la API de Node)
+  getMetrics: (boardId: string) => request<MlAnalysis>(`/boards/${boardId}/metrics`),
 
   // Miembros
   listMembers: (boardId: string) => request<MemberDto[]>(`/boards/${boardId}/members`),

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { removeCard, upsertCard, type BoardDto, type CardDto } from '@kanban/shared';
-import { keys } from '../api/queries';
+import { keys, refreshMetricsSoon } from '../api/queries';
 import { socket } from './socket';
 
 export type RealtimeStatus = 'connecting' | 'online' | 'offline';
@@ -61,8 +61,15 @@ export function useBoardRealtime(boardId: string, onRemoved: () => void) {
       firstConnect = false;
     };
     const onDisconnect = () => setStatus('offline');
-    const onUpsert = (card: CardDto) => update((b) => upsertCard(b, card));
-    const onDeleted = ({ id }: { id: string }) => update((b) => removeCard(b, id));
+    // Lo que hacen los demás también cambia las métricas: se recalculan (agrupadas).
+    const onUpsert = (card: CardDto) => {
+      update((b) => upsertCard(b, card));
+      refreshMetricsSoon(qc, boardId);
+    };
+    const onDeleted = ({ id }: { id: string }) => {
+      update((b) => removeCard(b, id));
+      refreshMetricsSoon(qc, boardId);
+    };
     const onPresence = (p: { boardId: string; count: number }) => {
       if (p.boardId === boardId) setViewers(p.count);
     };

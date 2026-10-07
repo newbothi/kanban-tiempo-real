@@ -12,6 +12,7 @@ import { prisma } from '../db';
 import { notFound, parseOr400 } from '../http';
 import { requireBoardRole } from '../auth/access';
 import { notify } from '../realtime';
+import { MlUnavailableError, analyzeBoard } from '../ml/client';
 
 const DEFAULT_COLUMNS = ['Por hacer', 'En progreso', 'Hecho'];
 
@@ -98,6 +99,45 @@ export async function boardRoutes(app: FastifyInstance) {
     await prisma.board.delete({ where: { id: req.params.id } });
     notify.boardRemoved(req.params.id, members.map((m) => m.userId));
     return reply.code(204).send();
+  });
+
+  // ---- Métricas (servicio ML en Python) ----
+
+  app.get<{ Params: { id: string } }>('/boards/:id/metrics', async (req, reply) => {
+    const boardId = req.params.id;
+    if (!(await requireBoardRole(reply, boardId, req.user.sub))) return;
+
+    const [columns, cards, events] = await Promise.all([
+      prisma.column.findMany({ where: { boardId }, select: { id: true, title: true, position: true } }),
+      prisma.card.findMany({
+        where: { column: { boardId } },
+        select: { id: true, title: true, columnId: true, createdAt: true },
+      }),
+      prisma.cardEvent.findMany({
+        where: { boardId },
+        orderBy: { at: 'asc' },
+        select: { cardId: true, type: true, fromColumnId: true, toColumnId: true, at: true },
+      }),
+    ]);
+
+    try {
+      return await analyzeBoard({
+        now: new Date().toISOString(),
+        columns,
+        cards: cards.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
+        events: events.map((e) => ({
+          ...e,
+          type: e.type as 'created' | 'moved' | 'deleted',
+          at: e.at.toISOString(),
+        })),
+      });
+    } catch (err) {
+      if (!(err instanceof MlUnavailableError)) throw err;
+      req.log.warn({ err }, 'servicio ML no disponible');
+      return reply
+        .code(503)
+        .send({ error: 'MlUnavailable', message: 'El servicio de análisis no está disponible en este momento' });
+    }
   });
 
   // ---- Miembros ----

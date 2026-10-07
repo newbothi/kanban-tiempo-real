@@ -31,7 +31,7 @@ export async function cardRoutes(app: FastifyInstance) {
         orderBy: { position: 'desc' },
         select: { position: true },
       });
-      return tx.card.create({
+      const created = await tx.card.create({
         data: {
           columnId: input.columnId,
           title: input.title,
@@ -39,6 +39,11 @@ export async function cardRoutes(app: FastifyInstance) {
         },
         select: cardSelect,
       });
+      // El evento va en la MISMA transacción: si se guarda la tarjeta, se guarda su historial.
+      await tx.cardEvent.create({
+        data: { boardId: boardId!, cardId: created.id, type: 'created', toColumnId: input.columnId },
+      });
+      return created;
     });
 
     notify.cardCreated(req, boardId!, card);
@@ -85,11 +90,28 @@ export async function cardRoutes(app: FastifyInstance) {
       });
       const position = positionForMove(siblings, cardId, input.columnId, input.index);
 
-      return tx.card.update({
+      const before = await tx.card.findUniqueOrThrow({
+        where: { id: cardId },
+        select: { columnId: true },
+      });
+      const updated = await tx.card.update({
         where: { id: cardId },
         data: { columnId: input.columnId, position },
         select: cardSelect,
       });
+      // Solo los cambios de columna son relevantes para el análisis (no los reordenamientos).
+      if (before.columnId !== input.columnId) {
+        await tx.cardEvent.create({
+          data: {
+            boardId,
+            cardId,
+            type: 'moved',
+            fromColumnId: before.columnId,
+            toColumnId: input.columnId,
+          },
+        });
+      }
+      return updated;
     });
 
     if (!result) return notFound(reply, 'La columna');
@@ -102,7 +124,17 @@ export async function cardRoutes(app: FastifyInstance) {
     if (!boardId) return notFound(reply, 'La tarjeta');
     if (!(await requireBoardRole(reply, boardId, req.user.sub))) return;
 
-    await prisma.card.deleteMany({ where: { id: req.params.id } });
+    await prisma.$transaction(async (tx) => {
+      const card = await tx.card.findUnique({
+        where: { id: req.params.id },
+        select: { columnId: true },
+      });
+      if (!card) return;
+      await tx.card.delete({ where: { id: req.params.id } });
+      await tx.cardEvent.create({
+        data: { boardId, cardId: req.params.id, type: 'deleted', fromColumnId: card.columnId },
+      });
+    });
     notify.cardDeleted(req, boardId, req.params.id);
     return reply.code(204).send();
   });

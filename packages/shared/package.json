@@ -8,7 +8,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "ml:types": "npx --yes openapi-typescript@7.13.0 ../../apps/ml/openapi.json -o src/ml-api.ts --default-non-nullable false"
   },
   "dependencies": {
     "fractional-indexing": "^4.0.0",

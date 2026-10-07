@@ -25,6 +25,11 @@ export default defineConfig({
     url: `http://localhost:${PORT}/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
-    env: { PORT: String(PORT), ENV_FILE: '.env.test', LOG_LEVEL: 'warn' },
+    env: {
+      PORT: String(PORT),
+      ENV_FILE: '.env.test',
+      LOG_LEVEL: 'warn',
+      ML_URL: process.env.ML_URL ?? 'http://localhost:8000',
+    },
   },
 });

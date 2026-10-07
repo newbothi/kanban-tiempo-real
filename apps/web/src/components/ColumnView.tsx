@@ -2,16 +2,17 @@ import { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import type { CardDto, ColumnDto } from '@kanban/shared';
-import { CardItem } from './CardItem';
+import { CardItem, type CardInsight } from './CardItem';
 
 interface Props {
   column: ColumnDto;
   cards: CardDto[];
   onAdd: (columnId: string, title: string) => Promise<unknown>;
   onDelete: (cardId: string) => void;
+  insights?: Map<string, CardInsight>;
 }
 
-export function ColumnView({ column, cards, onAdd, onDelete }: Props) {
+export function ColumnView({ column, cards, onAdd, onDelete, insights }: Props) {
   // La columna también es "droppable" para poder soltar en columnas vacías.
   const { setNodeRef, isOver } = useDroppable({
     id: column.id,
@@ -45,7 +46,7 @@ export function ColumnView({ column, cards, onAdd, onDelete }: Props) {
       <SortableContext items={cards.map((c) => c.id)} strategy={verticalListSortingStrategy}>
         <div ref={setNodeRef} className="column__cards">
           {cards.map((card) => (
-            <CardItem key={card.id} card={card} onDelete={onDelete} />
+            <CardItem key={card.id} card={card} insight={insights?.get(card.id)} onDelete={onDelete} />
           ))}
           {cards.length === 0 && <p className="column__empty">Suelta tarjetas aquí</p>}
         </div>

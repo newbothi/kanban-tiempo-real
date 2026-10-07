@@ -26,6 +26,7 @@ model Board {
   createdAt DateTime      @default(now())
   columns   Column[]
   members   BoardMember[]
+  events    CardEvent[]
 }
 
 /// Quién puede ver un tablero y con qué rol.
@@ -66,4 +67,21 @@ model Card {
   column    Column   @relation(fields: [columnId], references: [id], onDelete: Cascade)
 
   @@index([columnId, position])
+}
+
+/// Historial de lo que le pasó a cada tarjeta: es la materia prima del análisis (servicio ML).
+/// No tiene FK a Card a propósito: el historial debe sobrevivir aunque la tarjeta se elimine.
+model CardEvent {
+  id           String   @id @default(uuid()) @db.VarChar(36)
+  boardId      String   @db.VarChar(36)
+  cardId       String   @db.VarChar(36)
+  /// "created" | "moved" | "deleted"
+  type         String   @db.VarChar(20)
+  fromColumnId String?  @db.VarChar(36)
+  toColumnId   String?  @db.VarChar(36)
+  at           DateTime @default(now())
+  board        Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@index([boardId, at])
+  @@index([cardId])
 }

@@ -1,0 +1,7 @@
+# Servicio de análisis (ML) — dependencias de ejecución
+fastapi~=0.142
+uvicorn[standard]~=0.54
+pydantic~=2.13
+numpy~=2.5
+scipy~=1.18
+scikit-learn~=1.9

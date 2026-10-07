@@ -27,6 +27,27 @@ jobs:
       - run: npm run test:unit
       - run: npm run build
 
+  ml:
+    name: Servicio ML (Python)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: apps/ml/requirements*.txt
+      - run: pip install -r requirements-dev.txt
+        working-directory: apps/ml
+      - run: python -m pytest -q
+        working-directory: apps/ml
+      - name: El contrato (OpenAPI → TypeScript) está al día
+        run: |
+          (cd apps/ml && python -m scripts.export_openapi openapi.json)
+          npm run ml:types -w @kanban/shared
+          git diff --exit-code -- apps/ml/openapi.json packages/shared/src/ml-api.ts \
+            || (echo "::error::Cambió la API de Python: corre 'npm run ml:types' y commitea los archivos generados"; exit 1)
+
   integration:
     name: API + E2E contra SQL Server
     runs-on: ubuntu-latest
@@ -55,10 +76,24 @@ jobs:
       - run: npm run db:generate -w @kanban/api
       - name: Tests de integración (Vitest)
         run: npm run test:api
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: apps/ml/requirements*.txt
+      - name: Levantar el servicio ML para los E2E
+        working-directory: apps/ml
+        run: |
+          pip install -r requirements.txt
+          nohup python -m uvicorn app.main:app --port 8000 > ml.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break; sleep 1; done
       - run: npx playwright install --with-deps chromium
         working-directory: apps/web
       - name: Tests E2E (Playwright, dos usuarios)
         run: npm run test:e2e
+        env:
+          ML_URL: http://127.0.0.1:8000
+          E2E_EXPECT_ML: '1'
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -69,7 +104,7 @@ jobs:
   docker:
     name: Imagen Docker → GHCR
     # Solo si TODO lo anterior pasó y es un push a main.
-    needs: [check, integration]
+    needs: [check, ml, integration]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -94,8 +129,18 @@ jobs:
           tags: |
             ${{ env.IMAGE }}:latest
             ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+      - name: Imagen del servicio ML (Python)
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/ml
+          push: true
+          tags: |
+            ${{ env.IMAGE }}-ml:latest
+            ${{ env.IMAGE }}-ml:${{ github.sha }}
+          cache-from: type=gha,scope=ml
+          cache-to: type=gha,mode=max,scope=ml
       - name: Avisar a Azure para que descargue la imagen nueva
         if: env.AZURE_WEBHOOK != ''
         run: curl -fsS -X POST "$AZURE_WEBHOOK" -o /dev/null

@@ -106,6 +106,19 @@ test('dos usuarios colaboran en tiempo real', async ({ browser }) => {
     await expect(column(ana, 'Hecho').getByText('Escribir tests E2E')).toBeVisible();
   });
 
+  await test.step('la pestaña Métricas muestra el análisis (o un aviso si el servicio ML no está)', async () => {
+    await ana.getByRole('tab', { name: 'Métricas' }).click();
+    if (process.env.E2E_EXPECT_ML) {
+      await expect(ana.getByRole('heading', { name: 'Ritmo del equipo' })).toBeVisible();
+      await expect(ana.getByText('Pendientes', { exact: true })).toBeVisible();
+    } else {
+      await expect(
+        ana.getByRole('heading', { name: /Ritmo del equipo|El servicio de análisis no está disponible/ }),
+      ).toBeVisible();
+    }
+    await ana.getByRole('tab', { name: 'Tablero' }).click();
+  });
+
   await test.step('Ana quita a Beto y él pierde el acceso al instante', async () => {
     await ana.getByRole('button', { name: 'Miembros' }).click();
     await ana.getByRole('button', { name: 'Quitar' }).click();

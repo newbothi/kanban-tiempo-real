@@ -8,7 +8,33 @@ export const keys = {
   boards: ['boards'] as const,
   board: (id: string) => ['boards', id] as const,
   members: (id: string) => ['boards', id, 'members'] as const,
+  metrics: (id: string) => ['boards', id, 'metrics'] as const,
 };
+
+// ---------- Métricas ----------
+
+export const useMetrics = (boardId: string) =>
+  useQuery({
+    queryKey: keys.metrics(boardId),
+    queryFn: () => api.getMetrics(boardId),
+    staleTime: 30_000,
+    retry: false, // si el servicio ML está caído, mostramos el aviso de inmediato
+    placeholderData: (prev) => prev, // al recalcular, se mantiene el análisis anterior (sin parpadeo)
+  });
+
+const metricsTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+/**
+ * Recalcula las métricas poco después de un cambio. Si llegan muchos cambios seguidos
+ * (alguien arrastrando varias tarjetas), se agrupan en un solo recálculo.
+ */
+export function refreshMetricsSoon(qc: QueryClient, boardId: string, ms = 1500) {
+  clearTimeout(metricsTimers.get(boardId));
+  metricsTimers.set(
+    boardId,
+    setTimeout(() => void qc.invalidateQueries({ queryKey: keys.metrics(boardId) }), ms),
+  );
+}
 
 // ---------- Sesión ----------
 
@@ -120,8 +146,10 @@ export function useCreateCard(boardId: string) {
     mutationFn: api.createCard,
     meta: { errorMessage: 'No se pudo crear la tarjeta' },
     // upsert (no push) para que sea idempotente si la tarjeta ya llegó por otra vía
-    onSuccess: (card) =>
-      qc.setQueryData<BoardDto>(keys.board(boardId), (b) => (b ? upsertCard(b, card) : b)),
+    onSuccess: (card) => {
+      qc.setQueryData<BoardDto>(keys.board(boardId), (b) => (b ? upsertCard(b, card) : b));
+      refreshMetricsSoon(qc, boardId);
+    },
   });
 }
 
@@ -139,7 +167,10 @@ function optimistic(qc: QueryClient, boardId: string, update: (b: BoardDto) => B
   if (snapshot) qc.setQueryData<BoardDto>(key, update(snapshot));
   return {
     rollback: () => snapshot && qc.setQueryData(key, snapshot),
-    settle: () => qc.invalidateQueries({ queryKey: key }),
+    settle: () => {
+      void qc.invalidateQueries({ queryKey: key, exact: true });
+      refreshMetricsSoon(qc, boardId);
+    },
   };
 }
 

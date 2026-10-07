@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
-import type { UserDto } from '@kanban/shared';
+import { useEffect, useMemo, useState } from 'react';
+import { sortByPosition, type MlAnalysis, type UserDto } from '@kanban/shared';
 import { Board } from './components/Board';
 import { AuthScreen } from './components/AuthScreen';
 import { MembersPanel } from './components/MembersPanel';
+import { MetricsView } from './components/metrics/MetricsView';
+import type { CardInsight } from './components/CardItem';
 import {
   useBoard,
   useBoards,
@@ -10,6 +12,7 @@ import {
   useDeleteBoard,
   useLogout,
   useMe,
+  useMetrics,
 } from './api/queries';
 import {
   useBoardRealtime,
@@ -149,6 +152,15 @@ function BoardLoader({ id, me, onRemoved }: { id: string; me: UserDto; onRemoved
   const deleteBoard = useDeleteBoard();
   const { status, viewers } = useBoardRealtime(id, onRemoved);
   const [showMembers, setShowMembers] = useState(false);
+  const [view, setView] = useState<'board' | 'metrics'>('board');
+  // El análisis también alimenta las insignias de las tarjetas (estancada / tiempo restante).
+  const metrics = useMetrics(id);
+  const backlogColumn = board.data ? sortByPosition(board.data.columns)[0]?.id : undefined;
+  const backlogCards = useMemo(
+    () => new Set(board.data?.cards.filter((c) => c.columnId === backlogColumn).map((c) => c.id)),
+    [board.data, backlogColumn],
+  );
+  const insights = useMemo(() => toInsights(metrics.data, backlogCards), [metrics.data, backlogCards]);
 
   if (board.isPending) return <p className="status">Cargando tablero…</p>;
   if (board.isError) return <p className="status status--error">{board.error.message}</p>;
@@ -163,6 +175,14 @@ function BoardLoader({ id, me, onRemoved }: { id: string; me: UserDto; onRemoved
     <>
       <div className="toolbar">
         <h2 className="toolbar__title">{board.data.name}</h2>
+        <div className="tabs" role="tablist" aria-label="Vista">
+          <button role="tab" aria-selected={view === 'board'} onClick={() => setView('board')}>
+            Tablero
+          </button>
+          <button role="tab" aria-selected={view === 'metrics'} onClick={() => setView('metrics')}>
+            Métricas
+          </button>
+        </div>
         <div className="toolbar__actions">
           <Presence status={status} viewers={viewers} />
           <button className="link" onClick={() => setShowMembers((v) => !v)}>
@@ -177,13 +197,34 @@ function BoardLoader({ id, me, onRemoved }: { id: string; me: UserDto; onRemoved
       </div>
 
       <div className={`workspace${showMembers ? ' workspace--with-panel' : ''}`}>
-        <Board board={board.data} />
+        {view === 'board' ? (
+          <Board board={board.data} insights={insights} />
+        ) : (
+          <MetricsView
+            board={board.data}
+            data={metrics.data}
+            error={metrics.error}
+            isFetching={metrics.isFetching}
+          />
+        )}
         {showMembers && (
           <MembersPanel boardId={id} myRole={board.data.role} me={me} onLeft={onRemoved} />
         )}
       </div>
     </>
   );
+}
+
+function toInsights(data: MlAnalysis | undefined, backlog: Set<string>): Map<string, CardInsight> {
+  const map = new Map<string, CardInsight>();
+  for (const p of data?.cycleTime?.predictions ?? []) {
+    if (backlog.has(p.cardId)) continue; // en cola: la estimación sería ruido en el tablero
+    map.set(p.cardId, { remainingDays: p.remainingDays, overdue: p.overdue });
+  }
+  for (const s of data?.stale ?? []) {
+    map.set(s.cardId, { ...map.get(s.cardId), stale: { days: s.daysInColumn, typical: s.typicalDays } });
+  }
+  return map;
 }
 
 const STATUS_LABEL: Record<RealtimeStatus, string> = {
