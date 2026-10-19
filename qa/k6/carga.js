@@ -37,6 +37,8 @@ const ip = (i) => `10.${Math.floor(i / 250)}.${i % 250}.${1 + (i % 200)}`;
 const json = (cookie, i) => ({
   headers: { 'content-type': 'application/json', cookie, 'x-forwarded-for': ip(i) },
 });
+/** Para POST sin cuerpo: sin content-type (con JSON vacío la API responde 400, como debe). */
+const noBody = (cookie, i) => ({ headers: { cookie, 'x-forwarded-for': ip(i) } });
 
 /** Registra a las 50 personas, arma 10 tableros con 5 miembros y 20 tarjetas cada uno. */
 export function setup() {
@@ -65,7 +67,7 @@ export function setup() {
       const member = users[b * PER_BOARD + m];
       http.post(`${API}/api/boards/${board.id}/members`, JSON.stringify({ email: member.email }), json(owner.cookie, owner.i));
       const inv = http.get(`${API}/api/invites`, json(member.cookie, member.i)).json()[0];
-      const a = http.post(`${API}/api/invites/${inv.id}/accept`, null, json(member.cookie, member.i));
+      const a = http.post(`${API}/api/invites/${inv.id}/accept`, null, noBody(member.cookie, member.i));
       if (a.status !== 204) fail(`aceptar invitación: ${a.status} ${a.body}`);
     }
     const cards = [];

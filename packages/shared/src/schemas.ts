@@ -5,14 +5,13 @@ import { MAX_PASSWORD_BYTES, isCommonPassword, passwordBytes } from './passwords
 // el front la puede usar para validar formularios antes de enviar.
 
 /**
- * Para el navegador: Zod 4 prueba si puede usar `new Function` para validar más rápido. Con
- * una CSP estricta (script-src 'self', sin 'unsafe-eval') no puede, y el intento queda
- * registrado como violación de CSP aunque falle en silencio. En modo jitless no lo intenta.
- * Se llama una vez al arrancar el front, antes de validar nada.
+ * En el navegador, Zod 4 prueba si puede usar `new Function` para validar más rápido. Con
+ * nuestra CSP (script-src 'self', sin 'unsafe-eval') no puede, y el intento queda registrado
+ * como violación de CSP aunque falle en silencio. En modo jitless no lo intenta.
+ * Tiene que ir ANTES de definir los schemas: Zod decide al crearlos, no al validar.
+ * En el servidor (sin `document`) se mantiene la compilación, que es más rápida.
  */
-export function enableJitlessValidation() {
-  z.config({ jitless: true });
-}
+if (typeof document !== 'undefined') z.config({ jitless: true });
 
 // Primero normaliza (quita espacios, minúsculas) y DESPUÉS valida el formato:
 // así un correo pegado con un espacio al final no se rechaza.
