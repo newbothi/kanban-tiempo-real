@@ -163,7 +163,7 @@ export function useRespondInvite() {
 export const useInvitePreview = (token: string | null) =>
   useQuery({
     queryKey: ['invite-preview', token],
-    queryFn: () => api.previewInvite(token!),
+    queryFn: () => api.previewInvite(token ?? ''), // solo corre con token (enabled)
     enabled: !!token,
     retry: false,
   });

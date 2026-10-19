@@ -1,11 +1,11 @@
 """Construye tableros sintéticos con propiedades CONOCIDAS para verificar los análisis."""
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
 from app.schemas import AnalyzeRequest
 
-NOW = datetime(2026, 10, 7, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 10, 7, 12, 0, tzinfo=UTC)
 COLUMNS = [
     {"id": "todo", "title": "Por hacer", "position": "a0"},
     {"id": "doing", "title": "En progreso", "position": "a1"},

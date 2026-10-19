@@ -24,8 +24,12 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --from=build --chown=node:node /app/package.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/packages ./packages
-COPY --from=build --chown=node:node /app/apps/api ./apps/api
+COPY --from=build --chown=node:node /app/packages/shared/package.json ./packages/shared/
+COPY --from=build --chown=node:node /app/packages/shared/src ./packages/shared/src
+# De la API solo el código (src, con el cliente Prisma generado): sin tests, seed,
+# migraciones ni configuración de Vitest (S-24).
+COPY --from=build --chown=node:node /app/apps/api/package.json /app/apps/api/tsconfig.json ./apps/api/
+COPY --from=build --chown=node:node /app/apps/api/src ./apps/api/src
 COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist
 COPY --from=build --chown=node:node /app/apps/web/package.json ./apps/web/
 

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type { UserDto } from '@kanban/shared';
 import { useClaimInvite, useInvites, useResendVerification, useRespondInvite } from '../api/queries';
 import { clearInviteToken, inviteTokenFromUrl } from '../api/inviteLink';
-import { showToast } from '../ui/toast';
+import { showToast } from '../ui/toast-store';
 
 /** Avisos de la cuenta: correo sin verificar, cuenta demo e invitaciones recibidas. */
 export function AccountNotices({ me, onJoined }: { me: UserDto; onJoined: (boardId: string) => void }) {

@@ -10,7 +10,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+# S-23: versiones exactas y verificadas por hash (requirements.txt lo genera pip-compile).
+RUN pip install --require-hashes --no-deps -r requirements.txt
 
 COPY app ./app
 

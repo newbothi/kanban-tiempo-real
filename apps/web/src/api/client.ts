@@ -60,23 +60,23 @@ export const api = {
   login: (input: LoginInput) => request<UserDto>('/auth/login', { method: 'POST', body: json(input) }),
   register: (input: RegisterInput) =>
     request<UserDto>('/auth/register', { method: 'POST', body: json(input) }),
-  logout: () => request<void>('/auth/logout', { method: 'POST' }),
-  resendVerification: () => request<void>('/auth/verify/resend', { method: 'POST' }),
+  logout: () => request<undefined>('/auth/logout', { method: 'POST' }),
+  resendVerification: () => request<undefined>('/auth/verify/resend', { method: 'POST' }),
 
   // Invitaciones recibidas
   listInvites: () => request<InviteDto[]>('/invites'),
   previewInvite: (token: string) => request<InvitePreviewDto>(`/invites/preview?token=${encodeURIComponent(token)}`),
   claimInvite: (token: string) =>
     request<{ inviteId: string; boardId: string }>('/invites/claim', { method: 'POST', body: json({ token }) }),
-  acceptInvite: (id: string) => request<void>(`/invites/${id}/accept`, { method: 'POST' }),
-  declineInvite: (id: string) => request<void>(`/invites/${id}`, { method: 'DELETE' }),
+  acceptInvite: (id: string) => request<undefined>(`/invites/${id}/accept`, { method: 'POST' }),
+  declineInvite: (id: string) => request<undefined>(`/invites/${id}`, { method: 'DELETE' }),
 
   // Tableros
   listBoards: () => request<BoardSummaryDto[]>('/boards'),
   getBoard: (id: string) => request<BoardDto>(`/boards/${id}`),
   createBoard: (input: CreateBoardInput) =>
     request<BoardSummaryDto>('/boards', { method: 'POST', body: json(input) }),
-  deleteBoard: (id: string) => request<void>(`/boards/${id}`, { method: 'DELETE' }),
+  deleteBoard: (id: string) => request<undefined>(`/boards/${id}`, { method: 'DELETE' }),
 
   // Métricas (servicio ML en Python, a través de la API de Node)
   getMetrics: (boardId: string) => request<MlAnalysis>(`/boards/${boardId}/metrics`),
@@ -88,9 +88,9 @@ export const api = {
     request<{ message: string }>(`/boards/${boardId}/members`, { method: 'POST', body: json(input) }),
   listPendingInvites: (boardId: string) => request<PendingInviteDto[]>(`/boards/${boardId}/invites`),
   cancelInvite: (boardId: string, inviteId: string) =>
-    request<void>(`/boards/${boardId}/invites/${inviteId}`, { method: 'DELETE' }),
+    request<undefined>(`/boards/${boardId}/invites/${inviteId}`, { method: 'DELETE' }),
   removeMember: (boardId: string, userId: string) =>
-    request<void>(`/boards/${boardId}/members/${userId}`, { method: 'DELETE' }),
+    request<undefined>(`/boards/${boardId}/members/${userId}`, { method: 'DELETE' }),
 
   // Tarjetas
   createCard: (input: CreateCardInput) =>
@@ -99,5 +99,5 @@ export const api = {
     request<CardDto>(`/cards/${id}`, { method: 'PATCH', body: json(input) }),
   moveCard: (id: string, input: MoveCardInput) =>
     request<CardDto>(`/cards/${id}/move`, { method: 'POST', body: json(input) }),
-  deleteCard: (id: string) => request<void>(`/cards/${id}`, { method: 'DELETE' }),
+  deleteCard: (id: string) => request<undefined>(`/cards/${id}`, { method: 'DELETE' }),
 };

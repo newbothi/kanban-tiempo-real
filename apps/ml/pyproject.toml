@@ -1,0 +1,37 @@
+# Configuración de las herramientas de calidad del servicio ML (las dependencias
+# están en requirements*.txt; este archivo no empaqueta nada).
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+# E/F/W: errores y estilo base · I: orden de imports · B: bugs comunes · UP: sintaxis moderna
+# S: reglas de seguridad (bandit) · SIM/C4/RET: simplificaciones · PL: pylint esencial
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "C4", "RET", "PLE", "PLW"]
+
+[tool.ruff.lint.per-file-ignores]
+# En los tests assert es lo normal y los tokens son de mentira.
+"tests/**" = ["S101", "S105", "S106", "S311"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+packages = ["app"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["scipy.*", "sklearn.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = true
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]

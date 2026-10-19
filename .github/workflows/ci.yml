@@ -5,48 +5,106 @@ on:
     branches: [main]
   pull_request:
 
+# S-12: el token del workflow solo puede leer. Los jobs que necesitan más lo piden ellos.
+permissions:
+  contents: read
+
+# Un PR que recibe otro push cancela la corrida anterior. En main no se cancela nada,
+# para que cada merge quede probado y publicado.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   # Solo para CI: la base de prueba vive dentro del contenedor del servicio.
   MSSQL_SA_PASSWORD: Kanban_CI_2026!
   DATABASE_URL: sqlserver://localhost:1433;database=kanban_test;user=sa;password=Kanban_CI_2026!;encrypt=true;trustServerCertificate=true
   JWT_SECRET: secreto-de-ci-con-mas-de-32-caracteres-xxxx
 
+# S-23: todas las actions van fijadas por SHA (el comentario dice la versión). Dependabot las actualiza.
 jobs:
   check:
-    name: Tipos, tests unitarios y build
+    name: Lint, tipos, tests unitarios y build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
       - run: npm ci
       - run: npm run db:generate -w @kanban/api
+      - name: ESLint (API, paquete compartido y web)
+        run: npm run lint
       - run: npm run typecheck
-      - run: npm run test:unit
+      - name: Tests unitarios de la API
+        run: npm run test:unit -w @kanban/api
+      - name: Tests del paquete compartido (cobertura mínima 80 %)
+        run: npm run test:coverage -w @kanban/shared
       - run: npm run build
 
   ml:
     name: Servicio ML (Python)
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/ml
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
           cache: pip
           cache-dependency-path: apps/ml/requirements*.txt
-      - run: pip install -r requirements-dev.txt
-        working-directory: apps/ml
-      - run: python -m pytest -q
-        working-directory: apps/ml
+      - name: Instalar dependencias (versiones fijas y verificadas por hash)
+        run: pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+      - name: Ruff (lint + reglas de seguridad)
+        run: ruff check --output-format github .
+      - name: mypy (tipos estrictos)
+        run: mypy
+      - name: Bandit (análisis de seguridad)
+        run: bandit -c pyproject.toml -r app
+      - name: Tests (cobertura mínima 80 %)
+        run: python -m pytest -q --cov --cov-report=term --cov-report=xml
       - name: El contrato (OpenAPI → TypeScript) está al día
+        working-directory: .
         run: |
           (cd apps/ml && python -m scripts.export_openapi openapi.json)
           npm run ml:types -w @kanban/shared
           git diff --exit-code -- apps/ml/openapi.json packages/shared/src/ml-api.ts \
             || (echo "::error::Cambió la API de Python: corre 'npm run ml:types' y commitea los archivos generados"; exit 1)
+
+  dependencies:
+    name: Dependencias y secretos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0 # gitleaks revisa todos los commits del PR
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+      - name: npm audit (cualquier vulnerabilidad conocida falla)
+        run: npm audit --audit-level=low
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.13'
+      - name: pip-audit (dependencias de Python)
+        working-directory: apps/ml
+        run: |
+          pip install --require-hashes -r requirements.txt -r requirements-dev.txt
+          pip-audit --strict -r requirements.txt -r requirements-dev.txt --require-hashes --disable-pip
+      - name: gitleaks (secretos en el código o en el historial)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          GITLEAKS_ENABLE_SUMMARY: true
 
   integration:
     name: API + E2E contra SQL Server
@@ -62,8 +120,10 @@ jobs:
           --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Kanban_CI_2026! -C -Q 'SELECT 1'"
           --health-interval 10s --health-timeout 5s --health-retries 12
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: 24
           cache: npm
@@ -74,9 +134,14 @@ jobs:
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C
           -Q "IF DB_ID('kanban_test') IS NULL CREATE DATABASE kanban_test"
       - run: npm run db:generate -w @kanban/api
-      - name: Tests de integración (Vitest)
-        run: npm run test:api
-      - uses: actions/setup-python@v5
+      - name: Tests de la API, unitarios + integración (cobertura mínima 80 %)
+        run: npm run test:coverage -w @kanban/api
+      - name: Resumen de cobertura
+        if: always()
+        run: |
+          f=apps/api/coverage/coverage-summary.json
+          [ -f "$f" ] && node -e "const t=require('./$f').total; console.log('::notice title=Cobertura API::' + ['lines','statements','functions','branches'].map(k=>k+' '+t[k].pct+'%').join(' · '))" || true
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
           cache: pip
@@ -84,7 +149,7 @@ jobs:
       - name: Levantar el servicio ML para los E2E
         working-directory: apps/ml
         run: |
-          pip install -r requirements.txt
+          pip install --require-hashes -r requirements.txt
           nohup python -m uvicorn app.main:app --port 8000 > ml.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break; sleep 1; done
       - run: npx playwright install --with-deps chromium
@@ -94,7 +159,13 @@ jobs:
         env:
           ML_URL: http://127.0.0.1:8000
           E2E_EXPECT_ML: '1'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cobertura-api
+          path: apps/api/coverage
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: failure()
         with:
           name: playwright-report
@@ -102,45 +173,106 @@ jobs:
           retention-days: 7
 
   docker:
-    name: Imagen Docker → GHCR
-    # Solo si TODO lo anterior pasó y es un push a main.
-    needs: [check, ml, integration]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Imágenes Docker (Trivy, SBOM y publicación)
+    # En los PR: construye y escanea. En main, y solo si TODO lo anterior pasó: además publica.
+    needs: [check, ml, dependencies, integration]
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
+      packages: write # publicar en GHCR (solo se usa en main)
+      id-token: write # firmar la procedencia (provenance) del build
+      attestations: write
     env:
       IMAGE: ghcr.io/${{ github.repository }}
+      PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       # Opcional: URL del webhook de Azure (Centro de implementación) para redesplegar solo.
       AZURE_WEBHOOK: ${{ secrets.AZURE_WEBAPP_WEBHOOK }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: api
+            context: .
+            suffix: ''
+          - name: ml
+            context: apps/ml
+            suffix: '-ml'
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Construir (sin publicar)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: ${{ matrix.context }}
+          load: true
+          tags: kanban-${{ matrix.name }}:ci
+          cache-from: type=gha,scope=${{ matrix.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.name }}
+
+      # trivy-action v0.35.0: el único tag que no fue alterado en el incidente de marzo de 2026.
+      - name: Trivy (vulnerabilidades HIGH/CRITICAL con arreglo disponible)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: kanban-${{ matrix.name }}:ci
+          version: v0.69.3
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+      - name: SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
+        with:
+          image-ref: kanban-${{ matrix.name }}:ci
+          version: v0.69.3
+          format: cyclonedx
+          output: sbom-${{ matrix.name }}.cdx.json
+          skip-setup-trivy: true
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sbom-${{ matrix.name }}
+          path: sbom-${{ matrix.name }}.cdx.json
+          retention-days: 30
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        if: env.PUBLISH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - name: Publicar en GHCR
+        id: push
+        if: env.PUBLISH == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
-          context: .
+          context: ${{ matrix.context }}
           push: true
+          # Sin attestations dentro del manifiesto: Azure App Service espera una imagen simple.
+          provenance: false
           tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ github.sha }}
-          cache-from: type=gha,scope=api
-          cache-to: type=gha,mode=max,scope=api
-      - name: Imagen del servicio ML (Python)
-        uses: docker/build-push-action@v6
+            ${{ env.IMAGE }}${{ matrix.suffix }}:latest
+            ${{ env.IMAGE }}${{ matrix.suffix }}:${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.name }}
+      - name: Procedencia del build (firmada, queda en GitHub)
+        if: env.PUBLISH == 'true'
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f # v3.2.0
         with:
-          context: apps/ml
-          push: true
-          tags: |
-            ${{ env.IMAGE }}-ml:latest
-            ${{ env.IMAGE }}-ml:${{ github.sha }}
-          cache-from: type=gha,scope=ml
-          cache-to: type=gha,mode=max,scope=ml
+          subject-name: ${{ env.IMAGE }}${{ matrix.suffix }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: false
       - name: Avisar a Azure para que descargue la imagen nueva
-        if: env.AZURE_WEBHOOK != ''
+        if: env.PUBLISH == 'true' && matrix.name == 'api' && env.AZURE_WEBHOOK != ''
         run: curl -fsS -X POST "$AZURE_WEBHOOK" -o /dev/null
+
+  # TEMPORAL: obtener los digests de las imágenes base para fijarlos en los Dockerfile.
+  digests:
+    name: Digests de imágenes base (temporal)
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for i in node:24-bookworm-slim python:3.13-slim; do
+            d=$(docker buildx imagetools inspect "$i" --format '{{json .Manifest}}' | jq -r .digest)
+            echo "::notice title=digest $i::$d"
+          done

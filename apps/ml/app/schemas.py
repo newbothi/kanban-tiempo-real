@@ -29,7 +29,9 @@ Id = Annotated[str, Field(min_length=1, max_length=64)]
 class ColumnIn(Model):
     id: Id
     title: str = Field(max_length=200)
-    position: str = Field(max_length=255, description="Clave de orden (fractional indexing). La menor es la primera columna.")
+    position: str = Field(
+        max_length=255, description="Clave de orden (fractional indexing). La menor es la primera columna."
+    )
 
 
 class CardIn(Model):
@@ -88,7 +90,9 @@ class Trend(Model):
     r2: float
     p_value: float
     slope_ci95: tuple[float, float]
-    direction: Literal["up", "down", "flat"] = Field(description="'flat' si la pendiente no es significativa (p ≥ 0,05)")
+    direction: Literal["up", "down", "flat"] = Field(
+        description="'flat' si la pendiente no es significativa (p ≥ 0,05)"
+    )
 
 
 class ForecastPoint(Model):

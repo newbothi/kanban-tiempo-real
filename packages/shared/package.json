@@ -9,13 +9,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "ml:types": "npx --yes openapi-typescript@7.13.0 ../../apps/ml/openapi.json -o src/ml-api.ts --default-non-nullable false"
+    "ml:types": "npx --yes openapi-typescript@7.13.0 ../../apps/ml/openapi.json -o src/ml-api.ts --default-non-nullable false",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "fractional-indexing": "^4.0.0",
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^5.0.3",
     "typescript": "~6.0.2",
     "vitest": "^5.0.3"
   }

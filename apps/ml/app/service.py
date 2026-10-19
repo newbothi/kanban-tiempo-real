@@ -30,15 +30,15 @@ def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
         raise ValueError("El tablero necesita al menos 2 columnas")
 
     board = build(req)
-    done_cards = [c for c in board.cards if c.done_at]
-    lead_times = [days_between(c.created, c.done_at) for c in done_cards]
+    finished = [(c.created, c.done_at) for c in board.cards if c.done_at is not None]
+    lead_times = [days_between(created, done_at) for created, done_at in finished]
 
     summary = Summary(
         cards_total=len(board.cards),
         backlog=sum(c.column_id == board.first_col for c in board.cards),
         in_progress=sum(c.column_id in board.middle_cols for c in board.cards),
-        done=len(done_cards),
-        done_last_4_weeks=sum(c.done_at >= now - timedelta(weeks=4) for c in done_cards),
+        done=len(finished),
+        done_last_4_weeks=sum(done_at >= now - timedelta(weeks=4) for _, done_at in finished),
         lead_time_median_days=round(float(np.median(lead_times)), 2) if lead_times else None,
         lead_time_p85_days=round(float(np.percentile(lead_times, 85)), 2) if lead_times else None,
     )
@@ -49,7 +49,7 @@ def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     fitted = trend.fit(counts)
     trend_result = fitted[0] if fitted else None
     line = fitted[1] if fitted else [None] * len(weeks)
-    points = [WeekPoint(week_start=s, done=n, trend=t) for (s, n), t in zip(weeks, line)]
+    points = [WeekPoint(week_start=s, done=n, trend=t) for (s, n), t in zip(weeks, line, strict=True)]
 
     if trend_result is None:
         warnings.append(f"Se necesitan al menos {trend.MIN_WEEKS} semanas con actividad para calcular la tendencia.")
@@ -83,7 +83,7 @@ def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
     if ct is None:
         warnings.append(
             f"Se necesitan al menos {cycle_time.MIN_TRAIN} tarjetas terminadas para entrenar el modelo de "
-            f"predicción (hay {len(done_cards)})."
+            f"predicción (hay {len(finished)})."
         )
     else:
         best = next(s for s in ct.scores if s.name == ct.best_model)
@@ -99,8 +99,9 @@ def analyze(req: AnalyzeRequest) -> AnalyzeResponse:
                 f"limitar el trabajo en paralelo acelera las entregas."
             )
         if ct.kind_effect_days:
-            slowest = max(ct.kind_effect_days, key=ct.kind_effect_days.get)
-            fastest = min(ct.kind_effect_days, key=ct.kind_effect_days.get)
+            effects = ct.kind_effect_days
+            slowest = max(effects, key=lambda k: effects[k])
+            fastest = min(effects, key=lambda k: effects[k])
             if slowest != fastest:
                 insights.append(
                     f"{KIND_NAMES.get(slowest, slowest).capitalize()} son lo que más tarda y "

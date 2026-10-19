@@ -1,0 +1,11 @@
+# Entrada de pip-compile (herramientas de test y lint). Genera requirements-dev.txt:
+#   pip-compile --generate-hashes --allow-unsafe -o requirements-dev.txt requirements-dev.in
+-c requirements.txt
+pytest~=9.1
+httpx~=0.28
+pytest-cov~=7.1
+hypothesis~=6.170
+ruff~=0.17.1
+mypy~=2.4
+bandit~=1.9
+pip-audit~=2.10

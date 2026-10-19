@@ -11,10 +11,11 @@ Configuración (variables de entorno):
 import logging
 import os
 import secrets
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from app.schemas import AnalyzeRequest, AnalyzeResponse
 from app.service import analyze
@@ -39,7 +40,7 @@ def check_config() -> None:
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     check_config()
     yield
 
@@ -74,7 +75,9 @@ def create_app() -> FastAPI:
     )
 
     @app.middleware("http")
-    async def limit_body_size(request: Request, call_next):
+    async def limit_body_size(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
         """Rechaza cuerpos enormes antes de leerlos (uvicorn no tiene un límite propio)."""
         if request.method == "POST":
             length = request.headers.get("content-length")
