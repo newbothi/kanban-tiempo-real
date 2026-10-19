@@ -3,6 +3,8 @@ name: Estabilidad (20 corridas)
 # Fase 4: la suite no puede tener tests inestables ("flaky"). Este workflow corre 20 veces,
 # en paralelo y sin reintentos, todo lo que depende de tiempos o de concurrencia: la API contra
 # SQL Server (con socket y carreras) y los E2E en los 4 navegadores. Una sola falla lo marca rojo.
+# (Primera pasada: 4 de 20 fallaron. Se corrigieron el contraste al recalcular métricas y se
+# agregó diagnóstico al registro en los E2E.)
 on:
   workflow_dispatch:
   schedule:

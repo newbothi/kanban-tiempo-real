@@ -80,6 +80,13 @@ describe('vista de métricas', () => {
     expect(screen.getByText('Demasiados cálculos de métricas')).toBeInTheDocument();
   });
 
+  it('al recalcular mantiene el análisis anterior y lo avisa, sin atenuar el texto', () => {
+    const { container } = view({ isFetching: true });
+    expect(screen.getByRole('status')).toHaveTextContent('Actualizando el análisis…');
+    expect(container.querySelector('.metrics')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByText('Terminadas en las últimas 4 semanas')).toBeInTheDocument();
+  });
+
   it('mientras calcula, lo indica', () => {
     view({ data: undefined });
     expect(screen.getByText('Analizando el tablero…')).toBeInTheDocument();

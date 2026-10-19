@@ -82,8 +82,14 @@ export async function register(page: Page, u: TestUser) {
   await page.getByLabel('Nombre').fill(u.name);
   await page.getByLabel('Correo').fill(u.email);
   await page.getByLabel('Contraseña').fill(u.password);
-  await page.getByRole('button', { name: 'Crear cuenta' }).last().click();
-  await expect(page.getByText(u.name, { exact: true })).toBeVisible();
+  // Se espera la respuesta del registro: si algo falla, el error dice qué respondió la API
+  // (o que el formulario ni siquiera envió la petición) en vez de solo "no apareció el nombre".
+  const [res] = await Promise.all([
+    page.waitForResponse((r) => r.url().endsWith('/api/auth/register'), { timeout: 15_000 }),
+    page.getByRole('button', { name: 'Crear cuenta' }).last().click(),
+  ]);
+  if (res.status() !== 201) throw new Error(`el registro respondió ${res.status()}: ${await res.text()}`);
+  await expect(page.getByText(u.name, { exact: true })).toBeVisible({ timeout: 10_000 });
 }
 
 export async function createBoard(page: Page, name: string) {
