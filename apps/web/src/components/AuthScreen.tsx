@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { loginSchema, registerSchema } from '@kanban/shared';
-import { useLogin, useRegister } from '../api/queries';
+import { useInvitePreview, useLogin, useRegister } from '../api/queries';
+import { inviteTokenFromUrl } from '../api/inviteLink';
 
 type Mode = 'login' | 'register';
 
@@ -11,6 +12,12 @@ export function AuthScreen() {
   const login = useLogin();
   const register = useRegister();
   const mutation = mode === 'login' ? login : register;
+
+  // Si llegó desde el correo de invitación: mostramos quién invita y completamos el correo.
+  const invite = useInvitePreview(inviteTokenFromUrl());
+  useEffect(() => {
+    if (invite.data) setForm((f) => (f.email ? f : { ...f, email: invite.data.email }));
+  }, [invite.data]);
 
   const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((f) => ({ ...f, [field]: e.target.value }));
@@ -43,6 +50,17 @@ export function AuthScreen() {
     <div className="auth">
       <form className="auth__card" onSubmit={submit} noValidate>
         <h1>Kanban</h1>
+        {invite.data && (
+          <p className="notice" role="status">
+            <strong>{invite.data.invitedBy}</strong> te invitó a «{invite.data.boardName}». Entra o crea tu cuenta con{' '}
+            <strong>{invite.data.email}</strong> para verla.
+          </p>
+        )}
+        {invite.isError && (
+          <p className="notice notice--warning" role="status">
+            El enlace de invitación no es válido o ya venció. Pide que te inviten de nuevo.
+          </p>
+        )}
         <div className="auth__tabs" role="tablist">
           <button
             type="button"

@@ -4,10 +4,9 @@ import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import bcrypt from 'bcryptjs';
-import { createHash, randomBytes } from 'node:crypto';
 import { loginSchema, registerSchema, type UserDto } from '@kanban/shared';
 import { prisma } from '../db';
-import { clientIp, parseOr400 } from '../http';
+import { TOKEN_FORMAT, clientIp, hashToken, newToken, parseOr400, publicUrl } from '../http';
 import { LoginThrottle, type ThrottleOptions } from './throttle';
 import { demoEmail, isSessionCurrent, sessionCookieName, type SessionClaims } from './session';
 import { getJwtSecret } from './secret';
@@ -39,12 +38,6 @@ export { getJwtSecret };
 const userSelect = { id: true, email: true, name: true, emailVerifiedAt: true } as const;
 
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000;
-const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-
-/** URL pública de la app, para los enlaces de los correos. */
-function publicUrl(req: FastifyRequest): string {
-  return (process.env.PUBLIC_URL ?? `${req.protocol}://${req.host}`).replace(/\/$/, '');
-}
 
 function setSessionCookie(reply: FastifyReply, token: string) {
   reply.setCookie(sessionCookieName(), token, {
@@ -95,10 +88,10 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
   /** Crea un token de verificación nuevo (solo se guarda su hash) y envía el enlace por correo. */
   async function sendVerification(req: FastifyRequest, user: { id: string; email: string; name: string }) {
     if (!opts.mailer.enabled) return;
-    const token = randomBytes(32).toString('base64url');
+    const token = newToken();
     await prisma.user.update({
       where: { id: user.id },
-      data: { verifyTokenHash: sha256(token), verifyTokenExpiresAt: new Date(Date.now() + VERIFY_TTL_MS) },
+      data: { verifyTokenHash: hashToken(token), verifyTokenExpiresAt: new Date(Date.now() + VERIFY_TTL_MS) },
     });
     const link = `${publicUrl(req)}/api/auth/verify?token=${token}`;
     try {
@@ -221,9 +214,9 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
    */
   app.get<{ Querystring: { token?: string } }>('/api/auth/verify', limited, async (req, reply) => {
     const token = req.query.token ?? '';
-    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) return reply.redirect('/?verificado=0');
+    if (!TOKEN_FORMAT.test(token)) return reply.redirect('/?verificado=0');
     const user = await prisma.user.findFirst({
-      where: { verifyTokenHash: sha256(token), verifyTokenExpiresAt: { gt: new Date() } },
+      where: { verifyTokenHash: hashToken(token), verifyTokenExpiresAt: { gt: new Date() } },
       select: { id: true },
     });
     if (!user) return reply.redirect('/?verificado=0');

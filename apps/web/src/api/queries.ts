@@ -159,6 +159,27 @@ export function useRespondInvite() {
   });
 }
 
+/** Vista previa del enlace del correo (antes de iniciar sesión). */
+export const useInvitePreview = (token: string | null) =>
+  useQuery({
+    queryKey: ['invite-preview', token],
+    queryFn: () => api.previewInvite(token!),
+    enabled: !!token,
+    retry: false,
+  });
+
+/** Con sesión iniciada: reclama la invitación del enlace (si es para este correo). */
+export function useClaimInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: api.claimInvite,
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.invites });
+      void qc.invalidateQueries({ queryKey: keys.me });
+    },
+  });
+}
+
 export function useResendVerification() {
   return useMutation({
     mutationFn: api.resendVerification,

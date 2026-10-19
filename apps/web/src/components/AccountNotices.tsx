@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { UserDto } from '@kanban/shared';
-import { useInvites, useResendVerification, useRespondInvite } from '../api/queries';
+import { useClaimInvite, useInvites, useResendVerification, useRespondInvite } from '../api/queries';
+import { clearInviteToken, inviteTokenFromUrl } from '../api/inviteLink';
 import { showToast } from '../ui/toast';
 
 /** Avisos de la cuenta: correo sin verificar, cuenta demo e invitaciones recibidas. */
@@ -10,6 +11,7 @@ export function AccountNotices({ me, onJoined }: { me: UserDto; onJoined: (board
   const resend = useResendVerification();
   const [resent, setResent] = useState(false);
   useVerificationResultToast();
+  useInviteLink();
 
   const mustVerify = me.verificationRequired && !me.emailVerified;
 
@@ -70,6 +72,21 @@ export function AccountNotices({ me, onJoined }: { me: UserDto; onJoined: (board
       )}
     </>
   );
+}
+
+/** Si la app se abrió desde el correo de invitación, la reclama una vez (ya hay sesión). */
+function useInviteLink() {
+  const claim = useClaimInvite();
+  useEffect(() => {
+    const token = inviteTokenFromUrl();
+    if (!token) return;
+    clearInviteToken();
+    claim.mutate(token, {
+      onSuccess: () => showToast('Tienes una invitación: acéptala o recházala arriba.'),
+      onError: (err) => showToast(err.message),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 }
 
 /** El enlace del correo vuelve a la app con ?verificado=1 (o 0): se avisa y se limpia la URL. */

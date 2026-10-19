@@ -13,6 +13,7 @@ import type {
   RenameCardInput,
   UserDto,
   InviteDto,
+  InvitePreviewDto,
   PendingInviteDto,
 } from '@kanban/shared';
 import { SOCKET_ID_HEADER } from '@kanban/shared';
@@ -64,6 +65,9 @@ export const api = {
 
   // Invitaciones recibidas
   listInvites: () => request<InviteDto[]>('/invites'),
+  previewInvite: (token: string) => request<InvitePreviewDto>(`/invites/preview?token=${encodeURIComponent(token)}`),
+  claimInvite: (token: string) =>
+    request<{ inviteId: string; boardId: string }>('/invites/claim', { method: 'POST', body: json({ token }) }),
   acceptInvite: (id: string) => request<void>(`/invites/${id}/accept`, { method: 'POST' }),
   declineInvite: (id: string) => request<void>(`/invites/${id}`, { method: 'DELETE' }),
 

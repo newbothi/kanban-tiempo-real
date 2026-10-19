@@ -26,6 +26,9 @@ export const loginSchema = z.object({
 
 export const addMemberSchema = z.object({ email });
 
+/** Token del enlace de invitación que llega por correo. */
+export const claimInviteSchema = z.object({ token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, 'Enlace inválido') });
+
 export const createBoardSchema = z.object({
   name: z.string().trim().min(1).max(200),
 });
