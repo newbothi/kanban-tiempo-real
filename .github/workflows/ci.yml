@@ -140,7 +140,17 @@ jobs:
         if: always()
         run: |
           f=apps/api/coverage/coverage-summary.json
-          [ -f "$f" ] && node -e "const t=require('./$f').total; console.log('::notice title=Cobertura API::' + ['lines','statements','functions','branches'].map(k=>k+' '+t[k].pct+'%').join(' · '))" || true
+          [ -f "$f" ] && node -e "
+            const s = require('./$f');
+            const t = s.total;
+            console.log('::notice title=Cobertura API::' + ['lines','statements','functions','branches'].map(k=>k+' '+t[k].pct+'%').join(' · '));
+            // Los archivos con menos ramas cubiertas: por dónde empezar si baja el umbral.
+            const low = Object.entries(s).filter(([k]) => k !== 'total')
+              .map(([k, v]) => [k.replace(/.*apps\/api\//, ''), v.branches])
+              .filter(([, b]) => b.total > 0 && b.pct < 80)
+              .sort((a, b) => (b[1].total - b[1].covered) - (a[1].total - a[1].covered)).slice(0, 8);
+            for (const [k, b] of low) console.log('::notice title=Ramas sin cubrir::' + k + ' ' + b.covered + '/' + b.total + ' (' + b.pct + '%)');
+          " || true
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.13'
