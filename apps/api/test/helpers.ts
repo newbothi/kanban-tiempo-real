@@ -98,8 +98,16 @@ export function waitForEvent(s: TestSocket, name: string, match: (p: any) => boo
   });
 }
 
-/** Comprueba que NO llegue un evento durante `ms`. */
+/** Espera fija. Solo para cosas con tiempo real de por medio (p. ej. vencimiento de un token). */
 export const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Barrera: hace una ida y vuelta con el servidor por ESE socket. Socket.IO entrega en orden
+ * los mensajes de una misma conexión, así que todo lo que el servidor le haya enviado antes
+ * ya llegó cuando vuelve la respuesta. Sirve para comprobar que un evento NO llegó sin
+ * depender de esperas fijas (que hacen los tests lentos o inestables).
+ */
+export const roundTrip = (s: TestSocket) => joinBoard(s, '00000000-0000-4000-8000-000000000000');
 
 /** Registra un usuario y devuelve su cliente con sesión. */
 export async function registerUser(base: string, name: string) {

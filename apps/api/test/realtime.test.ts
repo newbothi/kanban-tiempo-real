@@ -6,7 +6,7 @@ import {
   joinBoard,
   registerUser,
   resetDb,
-  sleep,
+  roundTrip,
   socketFor,
   startServer,
   waitForEvent,
@@ -56,7 +56,7 @@ describe('rooms', () => {
   it('un no miembro NO puede entrar ni recibir eventos', async () => {
     expect((await joinBoard(sBeto, boardId)).ok).toBe(false);
     await ana.req('POST', '/cards', { columnId: todo, title: 'Secreta' }, { 'x-socket-id': sAna.id! });
-    await sleep(200);
+    await roundTrip(sBeto);
     expect(sBeto.events.some(([e]) => e.startsWith('card:'))).toBe(false);
   });
 });
@@ -79,10 +79,10 @@ describe('invitar y sincronizar', () => {
   it('una segunda pestaña del mismo usuario no suma a la presencia', async () => {
     const tab2 = track(socketFor(server.base, beto.cookie));
     await connected(tab2);
+    sAna.events.length = 0;
     await joinBoard(tab2, boardId);
-    await sleep(150);
-    const last = sAna.events.filter(([e]) => e === 'board:presence').at(-1)?.[1];
-    expect(last.count).toBe(2);
+    // Cada join publica la presencia: se espera ESE aviso (no una pausa fija).
+    expect(await waitForEvent(sAna, 'board:presence')).toEqual({ boardId, count: 2 });
     tab2.close();
   });
 
@@ -94,7 +94,7 @@ describe('invitar y sincronizar', () => {
     ).data;
     const received = await waitForEvent(sAna, 'card:created', (c) => c.id === card.id);
     expect(received).toEqual(card);
-    await sleep(150);
+    await roundTrip(sBeto);
     expect(sBeto.events.some(([e]) => e === 'card:created')).toBe(false);
   });
 
@@ -115,7 +115,7 @@ describe('perder el acceso', () => {
 
     sBeto.events.length = 0;
     await ana.req('POST', '/cards', { columnId: todo, title: 'Después' }, { 'x-socket-id': sAna.id! });
-    await sleep(200);
+    await roundTrip(sBeto);
     expect(sBeto.events.some(([e]) => e.startsWith('card:'))).toBe(false);
   });
 
@@ -137,7 +137,7 @@ describe('S-01: un cliente malicioso no puede tumbar el servidor', () => {
     (s as any).emit('board:join', boardId);
     (s as any).emit('board:join', { malicioso: true });
     (s as any).emit('board:leave', 123);
-    await sleep(300);
+    await roundTrip(s); // el servidor procesó todo lo anterior y sigue respondiendo
 
     // El servidor sigue vivo: responde HTTP y el mismo socket puede seguir usándose.
     expect((await ana.req('GET', '/auth/me')).status).toBe(200);
