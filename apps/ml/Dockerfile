@@ -12,7 +12,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 COPY requirements.txt .
 # S-23: versiones exactas y verificadas por hash (requirements.txt lo genera pip-compile).
-RUN pip install --require-hashes --no-deps -r requirements.txt
+# Después se desinstala pip: la app no lo usa y trae sus propias copias de urllib3, msgpack
+# y setuptools (Trivy las marca como vulnerables). También se aplican los parches del sistema.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --require-hashes --no-deps -r requirements.txt \
+ && pip uninstall -y pip setuptools wheel \
+ && python -c "import fastapi, uvicorn, sklearn, scipy"
 
 COPY app ./app
 

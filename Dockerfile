@@ -23,6 +23,13 @@ FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bd
 ENV NODE_ENV=production \
     PORT=3000
 WORKDIR /app
+# Parches de seguridad del sistema, y fuera npm/npx/corepack: la imagen solo ejecuta `node`
+# y el npm que trae la imagen base arrastra sus propias dependencias vulnerables (Trivy).
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+           /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=build --chown=node:node /app/package.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/packages/shared/package.json ./packages/shared/
