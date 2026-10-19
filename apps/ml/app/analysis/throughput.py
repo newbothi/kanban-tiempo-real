@@ -9,6 +9,10 @@ MAX_WEEKS = 26
 def weekly(board: Board, now: datetime) -> list[tuple[datetime, int]]:
     """Ventanas de 7 días que terminan en `now` (así no hay semana parcial).
 
+    Cada ventana es (inicio, inicio + 7 días]: incluye el instante `now`. Antes era
+    [inicio, inicio + 7 días) y una tarjeta terminada justo en `now` no se contaba
+    (lo encontró un test de propiedades).
+
     Devuelve [(inicio_de_semana, terminadas)] de la más antigua a la más reciente,
     desde la primera actividad del tablero (máximo 26 semanas).
     """
@@ -22,7 +26,7 @@ def weekly(board: Board, now: datetime) -> list[tuple[datetime, int]]:
         if c.done_at is None:
             continue
         for i, s in enumerate(starts):
-            if s <= c.done_at < s + timedelta(days=7):
+            if s < c.done_at <= s + timedelta(days=7):
                 counts[i] += 1
                 break
     return list(zip(starts, counts, strict=True))
