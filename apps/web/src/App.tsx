@@ -3,6 +3,7 @@ import { sortByPosition, type MlAnalysis, type UserDto } from '@kanban/shared';
 import { Board } from './components/Board';
 import { AuthScreen } from './components/AuthScreen';
 import { MembersPanel } from './components/MembersPanel';
+import { AccountNotices } from './components/AccountNotices';
 import { MetricsView } from './components/metrics/MetricsView';
 import type { CardInsight } from './components/CardItem';
 import {
@@ -123,6 +124,7 @@ function Workspace({ me }: { me: UserDto }) {
         </form>
       </nav>
 
+      <AccountNotices me={me} onJoined={(boardId) => select(boardId)} />
       {notice && <p className="notice">{notice}</p>}
       {boards.isPending && <p className="status">Cargando tableros…</p>}
       {boards.isSuccess && list.length === 0 && (
@@ -188,7 +190,7 @@ function BoardLoader({ id, me, onRemoved }: { id: string; me: UserDto; onRemoved
           <button className="link" onClick={() => setShowMembers((v) => !v)}>
             {showMembers ? 'Ocultar miembros' : 'Miembros'}
           </button>
-          {isOwner && (
+          {isOwner && !me.isDemo && (
             <button className="link danger" onClick={remove} disabled={deleteBoard.isPending}>
               Eliminar tablero
             </button>

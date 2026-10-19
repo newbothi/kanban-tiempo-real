@@ -18,8 +18,17 @@ model User {
   passwordHash String        @db.VarChar(100)
   /// Se incrementa al cerrar sesión: invalida todos los JWT anteriores (S-10).
   sessionVersion Int         @default(0)
+  /// S-09: null = correo sin verificar.
+  emailVerifiedAt      DateTime?
+  /// SHA-256 del token del enlace de verificación (el token en claro solo viaja por correo).
+  verifyTokenHash      String?   @db.VarChar(64)
+  verifyTokenExpiresAt DateTime?
+  /// S-18: último reinicio de la cuenta demo.
+  demoResetAt  DateTime?
   createdAt    DateTime      @default(now())
   memberships  BoardMember[]
+
+  @@index([verifyTokenHash])
 }
 
 model Board {
@@ -29,6 +38,21 @@ model Board {
   columns   Column[]
   members   BoardMember[]
   events    CardEvent[]
+  invites   BoardInvite[]
+}
+
+/// S-08: invitación pendiente. Se guarda por correo (exista o no la cuenta) y la persona
+/// la acepta o rechaza; así invitar no revela qué correos están registrados.
+model BoardInvite {
+  id          String   @id @default(uuid()) @db.VarChar(36)
+  boardId     String   @db.VarChar(36)
+  email       String   @db.NVarChar(254)
+  invitedById String   @db.VarChar(36)
+  createdAt   DateTime @default(now())
+  board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+
+  @@unique([boardId, email])
+  @@index([email])
 }
 
 /// Quién puede ver un tablero y con qué rol.

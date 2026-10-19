@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { addMemberSchema, type BoardRole, type UserDto } from '@kanban/shared';
-import { useAddMember, useMembers, useRemoveMember } from '../api/queries';
+import { useAddMember, useCancelInvite, useMembers, usePendingInvites, useRemoveMember } from '../api/queries';
 
 interface Props {
   boardId: string;
@@ -13,17 +13,24 @@ export function MembersPanel({ boardId, myRole, me, onLeft }: Props) {
   const members = useMembers(boardId);
   const add = useAddMember(boardId);
   const remove = useRemoveMember(boardId);
+  const isOwner = myRole === 'owner';
+  const pending = usePendingInvites(boardId, isOwner && !me.isDemo);
+  const cancel = useCancelInvite(boardId);
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const isOwner = myRole === 'owner';
+  const [sent, setSent] = useState<string | null>(null);
 
   const invite = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSent(null);
     const parsed = addMemberSchema.safeParse({ email });
     if (!parsed.success) return setError(parsed.error.issues[0].message);
     add.mutate(parsed.data.email, {
-      onSuccess: () => setEmail(''),
+      onSuccess: (r) => {
+        setEmail('');
+        setSent(r.message);
+      },
       onError: (err) => setError(err.message),
     });
   };
@@ -56,7 +63,8 @@ export function MembersPanel({ boardId, myRole, me, onLeft }: Props) {
             {m.role === 'owner' ? (
               <span className="badge">Dueño</span>
             ) : (
-              isOwner && (
+              isOwner &&
+              !me.isDemo && (
                 <button
                   className="link danger"
                   disabled={remove.isPending}
@@ -70,7 +78,25 @@ export function MembersPanel({ boardId, myRole, me, onLeft }: Props) {
         ))}
       </ul>
 
-      {isOwner ? (
+      {isOwner && pending.data && pending.data.length > 0 && (
+        <>
+          <h4 className="hint">Invitaciones sin responder</h4>
+          <ul className="members__pending">
+            {pending.data.map((p) => (
+              <li key={p.id}>
+                <span>{p.email}</span>
+                <button className="link danger" disabled={cancel.isPending} onClick={() => cancel.mutate(p.id)}>
+                  Cancelar
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      {isOwner && me.isDemo ? (
+        <p className="hint">La cuenta demo no puede invitar personas. Crea tu propia cuenta para probarlo.</p>
+      ) : isOwner ? (
         <form className="members__invite" onSubmit={invite} noValidate>
           <label htmlFor="invite-email">Invitar por correo</label>
           <div className="row">
@@ -86,7 +112,8 @@ export function MembersPanel({ boardId, myRole, me, onLeft }: Props) {
             </button>
           </div>
           {error && <p className="status status--error">{error}</p>}
-          <p className="hint">La persona debe tener una cuenta creada.</p>
+          {sent && <p className="status" role="status">{sent}</p>}
+          <p className="hint">La persona verá la invitación al entrar y podrá aceptarla o rechazarla.</p>
         </form>
       ) : (
         <button className="link danger" onClick={leave} disabled={remove.isPending}>

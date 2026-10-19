@@ -18,10 +18,17 @@ export function useUserRealtime() {
       // El servidor rechazó el handshake: la sesión ya no es válida.
       if (err.message === 'unauthorized') void qc.invalidateQueries({ queryKey: keys.me });
     };
+    // Me invitaron, o cancelaron una invitación, o verifiqué mi correo.
+    const onInvitesChanged = () => {
+      void qc.invalidateQueries({ queryKey: keys.invites });
+      void qc.invalidateQueries({ queryKey: keys.me }); // puede venir de verificar el correo
+    };
     socket.on('boards:changed', onBoardsChanged);
+    socket.on('invites:changed', onInvitesChanged);
     socket.on('connect_error', onConnectError);
     return () => {
       socket.off('boards:changed', onBoardsChanged);
+      socket.off('invites:changed', onInvitesChanged);
       socket.off('connect_error', onConnectError);
     };
   }, [qc]);
@@ -74,7 +81,9 @@ export function useBoardRealtime(boardId: string, onRemoved: () => void) {
       if (p.boardId === boardId) setViewers(p.count);
     };
     const onMembersChanged = (p: { boardId: string }) => {
-      if (p.boardId === boardId) void qc.invalidateQueries({ queryKey: keys.members(boardId) });
+      if (p.boardId !== boardId) return;
+      void qc.invalidateQueries({ queryKey: keys.members(boardId) });
+      void qc.invalidateQueries({ queryKey: keys.pendingInvites(boardId) });
     };
     // S-20: el servidor repartió de nuevo las posiciones de una columna: se recarga el tablero.
     const onReordered = (p: { boardId: string }) => {

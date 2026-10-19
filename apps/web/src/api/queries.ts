@@ -8,6 +8,8 @@ export const keys = {
   boards: ['boards'] as const,
   board: (id: string) => ['boards', id] as const,
   members: (id: string) => ['boards', id, 'members'] as const,
+  pendingInvites: (id: string) => ['boards', id, 'pending-invites'] as const,
+  invites: ['invites'] as const,
   metrics: (id: string) => ['boards', id, 'metrics'] as const,
 };
 
@@ -120,7 +122,47 @@ export function useAddMember(boardId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (email: string) => api.addMember(boardId, { email }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.members(boardId) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.pendingInvites(boardId) }),
+  });
+}
+
+export const usePendingInvites = (boardId: string, enabled: boolean) =>
+  useQuery({
+    queryKey: keys.pendingInvites(boardId),
+    queryFn: () => api.listPendingInvites(boardId),
+    enabled,
+  });
+
+export function useCancelInvite(boardId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) => api.cancelInvite(boardId, inviteId),
+    meta: { errorMessage: 'No se pudo cancelar la invitación' },
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.pendingInvites(boardId) }),
+  });
+}
+
+// ---------- Invitaciones recibidas y verificación de correo ----------
+
+export const useInvites = () => useQuery({ queryKey: keys.invites, queryFn: api.listInvites });
+
+export function useRespondInvite() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, accept }: { id: string; accept: boolean }) =>
+      accept ? api.acceptInvite(id) : api.declineInvite(id),
+    meta: { errorMessage: 'No se pudo responder la invitación' },
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: keys.invites });
+      void qc.invalidateQueries({ queryKey: keys.boards, exact: true });
+    },
+  });
+}
+
+export function useResendVerification() {
+  return useMutation({
+    mutationFn: api.resendVerification,
+    meta: { errorMessage: 'No se pudo reenviar el correo' },
   });
 }
 

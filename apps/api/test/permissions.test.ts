@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { registerUser, resetDb, startServer } from './helpers';
+import { addMember, registerUser, resetDb, startServer } from './helpers';
 
 let server: Awaited<ReturnType<typeof startServer>>;
 let ana: Awaited<ReturnType<typeof registerUser>>;
@@ -60,23 +60,62 @@ describe('un usuario que NO es miembro', () => {
   });
 });
 
-describe('invitaciones', () => {
-  it('solo a usuarios registrados', async () => {
-    const r = await ana.req('POST', `/boards/${boardId}/members`, { email: 'nadie@test.cl' });
-    expect(r.status).toBe(404);
+describe('invitaciones (S-08)', () => {
+  it('la respuesta es la misma exista o no la cuenta: no revela correos registrados', async () => {
+    const nadie = await ana.req('POST', `/boards/${boardId}/members`, { email: 'nadie@test.cl' });
+    const alguien = await ana.req('POST', `/boards/${boardId}/members`, { email: beto.email.toUpperCase() });
+    expect(nadie.status).toBe(202);
+    expect(alguien.status).toBe(202);
+    expect(nadie.data).toEqual(alguien.data);
   });
 
-  it('el dueño invita a un miembro', async () => {
-    const r = await ana.req('POST', `/boards/${boardId}/members`, { email: beto.email.toUpperCase() });
-    expect(r.status).toBe(201);
-    expect(r.data).toMatchObject({ userId: beto.id, role: 'member' });
-    expect((await ana.req('POST', `/boards/${boardId}/members`, { email: beto.email })).status).toBe(409);
+  it('invitar NO agrega a nadie: el tablero no aparece hasta aceptar', async () => {
+    expect((await beto.req('GET', '/boards')).data).toEqual([]);
+    expect((await beto.req('GET', `/boards/${boardId}`)).status).toBe(404);
   });
 
-  it('el miembro ahora ve el tablero', async () => {
+  it('el dueño ve las invitaciones sin responder', async () => {
+    const pending = (await ana.req('GET', `/boards/${boardId}/invites`)).data.map((p: { email: string }) => p.email);
+    expect(pending.sort()).toEqual([beto.email, 'nadie@test.cl'].sort());
+    expect((await beto.req('GET', `/boards/${boardId}/invites`)).status).toBe(404);
+  });
+
+  it('nadie puede aceptar una invitación que no es para su correo', async () => {
+    const carla = await registerUser(server.base, 'Carla');
+    const [inv] = (await beto.req('GET', '/invites')).data;
+    expect((await carla.req('POST', `/invites/${inv.id}/accept`)).status).toBe(404);
+    expect((await carla.req('DELETE', `/invites/${inv.id}`)).status).toBe(404);
+  });
+
+  it('el invitado acepta y el miembro ahora ve el tablero', async () => {
+    const invites = (await beto.req('GET', '/invites')).data;
+    expect(invites).toEqual([
+      expect.objectContaining({ boardId, boardName: 'Proyecto de Ana', invitedBy: 'Ana' }),
+    ]);
+    expect((await beto.req('POST', `/invites/${invites[0].id}/accept`)).status).toBe(204);
     expect((await beto.req('GET', '/boards')).data).toEqual([
       { id: boardId, name: 'Proyecto de Ana', role: 'member' },
     ]);
+    expect((await beto.req('GET', '/invites')).data).toEqual([]);
+  });
+
+  it('invitar a alguien que ya es miembro no crea otra invitación', async () => {
+    expect((await ana.req('POST', `/boards/${boardId}/members`, { email: beto.email })).status).toBe(202);
+    expect((await beto.req('GET', '/invites')).data).toEqual([]);
+  });
+
+  it('el dueño puede cancelar una invitación pendiente', async () => {
+    const [p] = (await ana.req('GET', `/boards/${boardId}/invites`)).data;
+    expect((await ana.req('DELETE', `/boards/${boardId}/invites/${p.id}`)).status).toBe(204);
+    expect((await ana.req('GET', `/boards/${boardId}/invites`)).data).toEqual([]);
+  });
+
+  it('el invitado puede rechazar', async () => {
+    const dani = await registerUser(server.base, 'Dani');
+    await ana.req('POST', `/boards/${boardId}/members`, { email: dani.email });
+    const [inv] = (await dani.req('GET', '/invites')).data;
+    expect((await dani.req('DELETE', `/invites/${inv.id}`)).status).toBe(204);
+    expect((await dani.req('GET', '/boards')).data).toEqual([]);
   });
 });
 

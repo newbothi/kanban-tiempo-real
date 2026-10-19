@@ -63,8 +63,11 @@ describe('rooms', () => {
 });
 
 describe('invitar y sincronizar', () => {
-  it('al invitar, el usuario recibe boards:changed en su room personal', async () => {
+  it('al invitar llega invites:changed; al aceptar, boards:changed', async () => {
     await ana.req('POST', `/boards/${boardId}/members`, { email: beto.email });
+    await waitForEvent(sBeto, 'invites:changed');
+    const [inv] = (await beto.req('GET', '/invites')).data;
+    await beto.req('POST', `/invites/${inv.id}/accept`);
     await waitForEvent(sBeto, 'boards:changed');
     expect(await joinBoard(sBeto, boardId)).toEqual({ ok: true });
   });
@@ -118,7 +121,7 @@ describe('perder el acceso', () => {
   });
 
   it('al eliminar el tablero, todos los miembros reciben board:removed', async () => {
-    await ana.req('POST', `/boards/${boardId}/members`, { email: beto.email });
+    await addMember(ana, boardId, beto);
     await joinBoard(sBeto, boardId);
     sBeto.events.length = 0;
     await ana.req('DELETE', `/boards/${boardId}`);

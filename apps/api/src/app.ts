@@ -10,6 +10,8 @@ import { authPlugin } from './auth/plugin';
 import { attachRealtime } from './realtime';
 import { boardRoutes } from './routes/boards';
 import { cardRoutes } from './routes/cards';
+import { inviteRoutes } from './routes/invites';
+import { mailerFromEnv, type Mailer } from './mail';
 import type { ThrottleOptions } from './auth/throttle';
 import { MetricsService, type MetricsOptions } from './ml/metrics';
 import { allowedOrigins } from './origins';
@@ -33,6 +35,8 @@ export interface BuildOptions {
   metrics?: MetricsOptions;
   /** Topes por usuario y por tablero (S-16). */
   limits?: LimitsOptions;
+  /** Envío de correos. Por defecto, según RESEND_API_KEY / MAIL_FROM (ver mail.ts). */
+  mailer?: Mailer;
 }
 
 /** Confía solo en los últimos `hops` saltos (lo mismo que hace proxy-addr con un número). */
@@ -134,12 +138,14 @@ export async function buildApp(opts: BuildOptions = {}) {
   });
 
   // Registro, login, logout, /me + el decorador app.authenticate
-  await app.register(authPlugin, { rateLimitMax: opts.authRateLimit, throttle: opts.loginThrottle });
+  const mailer = opts.mailer ?? mailerFromEnv(app.log);
+  await app.register(authPlugin, { rateLimitMax: opts.authRateLimit, throttle: opts.loginThrottle, mailer });
 
   const limits = resolveLimits(opts.limits);
   const writes = new SlidingWindowLimiter(limits.writesPerMinute, 60_000);
   await app.register(boardRoutes, { prefix: '/api', metrics: new MetricsService(opts.metrics), limits, writes });
   await app.register(cardRoutes, { prefix: '/api', limits, writes });
+  await app.register(inviteRoutes, { prefix: '/api', writes, mailer });
 
   // En producción, la misma API sirve el front compilado: un solo origen,
   // así la cookie de sesión y el WebSocket funcionan sin configurar CORS.

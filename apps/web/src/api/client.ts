@@ -12,6 +12,8 @@ import type {
   RegisterInput,
   RenameCardInput,
   UserDto,
+  InviteDto,
+  PendingInviteDto,
 } from '@kanban/shared';
 import { SOCKET_ID_HEADER } from '@kanban/shared';
 import { socket } from '../realtime/socket';
@@ -58,6 +60,12 @@ export const api = {
   register: (input: RegisterInput) =>
     request<UserDto>('/auth/register', { method: 'POST', body: json(input) }),
   logout: () => request<void>('/auth/logout', { method: 'POST' }),
+  resendVerification: () => request<void>('/auth/verify/resend', { method: 'POST' }),
+
+  // Invitaciones recibidas
+  listInvites: () => request<InviteDto[]>('/invites'),
+  acceptInvite: (id: string) => request<void>(`/invites/${id}/accept`, { method: 'POST' }),
+  declineInvite: (id: string) => request<void>(`/invites/${id}`, { method: 'DELETE' }),
 
   // Tableros
   listBoards: () => request<BoardSummaryDto[]>('/boards'),
@@ -71,8 +79,12 @@ export const api = {
 
   // Miembros
   listMembers: (boardId: string) => request<MemberDto[]>(`/boards/${boardId}/members`),
+  /** Invitar: siempre responde lo mismo (202), exista o no la cuenta. */
   addMember: (boardId: string, input: AddMemberInput) =>
-    request<MemberDto>(`/boards/${boardId}/members`, { method: 'POST', body: json(input) }),
+    request<{ message: string }>(`/boards/${boardId}/members`, { method: 'POST', body: json(input) }),
+  listPendingInvites: (boardId: string) => request<PendingInviteDto[]>(`/boards/${boardId}/invites`),
+  cancelInvite: (boardId: string, inviteId: string) =>
+    request<void>(`/boards/${boardId}/invites/${inviteId}`, { method: 'DELETE' }),
   removeMember: (boardId: string, userId: string) =>
     request<void>(`/boards/${boardId}/members/${userId}`, { method: 'DELETE' }),
 

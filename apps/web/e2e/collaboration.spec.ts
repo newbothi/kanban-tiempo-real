@@ -86,13 +86,20 @@ test('dos usuarios colaboran en tiempo real', async ({ browser }) => {
     expect(res.status()).toBe(404);
   });
 
-  await test.step('Ana invita a Beto y le aparece el tablero sin recargar', async () => {
+  await test.step('Ana invita a Beto: le llega la invitación sin recargar y la acepta', async () => {
     await ana.getByRole('button', { name: 'Miembros' }).click();
     await ana.getByLabel('Invitar por correo').fill(users.beto.email);
     await ana.getByRole('button', { name: 'Invitar' }).click();
-    await expect(ana.getByText(users.beto.email)).toBeVisible();
-    await beto.getByRole('button', { name: /Sprint E2E/ }).click();
+    // La invitación queda pendiente: Ana la ve en la lista, pero Beto todavía no es miembro.
+    await expect(ana.locator('.members__pending').getByText(users.beto.email)).toBeVisible();
+
+    const invitation = beto.locator('.invites__item').filter({ hasText: 'Sprint E2E' });
+    await expect(invitation).toContainText('Ana te invitó');
+    await invitation.getByRole('button', { name: 'Aceptar' }).click();
     await expect(beto.getByText('Escribir tests E2E')).toBeVisible();
+    // Ahora Ana lo ve como miembro y ya no como pendiente.
+    await expect(ana.locator('.members__list').getByText(users.beto.email)).toBeVisible();
+    await expect(ana.locator('.members__pending')).toHaveCount(0);
   });
 
   await test.step('ambos se ven conectados', async () => {
