@@ -121,7 +121,10 @@ export function Board({ board, insights }: { board: BoardDto; insights?: Map<str
         ))}
       </div>
 
-      <DragOverlay>{activeCard ? <CardItem card={activeCard} overlay /> : null}</DragOverlay>
+      {/* Sin animación al soltar: dnd-kit la hace con element.animate() y Safari (WebKit) la
+          bloquea por la CSP (style-src sin 'unsafe-inline'). La tarjeta ya queda en su lugar
+          al instante gracias a la actualización optimista. */}
+      <DragOverlay dropAnimation={null}>{activeCard ? <CardItem card={activeCard} overlay /> : null}</DragOverlay>
     </DndContext>
   );
 }

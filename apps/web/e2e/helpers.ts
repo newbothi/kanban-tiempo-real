@@ -19,14 +19,18 @@ export function makeUser(name: string): TestUser {
 export const cspViolations: string[] = [];
 export function watchCsp(page: Page) {
   page.on('console', (msg) => {
-    if (msg.type() === 'error' && /Content Security Policy/i.test(msg.text())) cspViolations.push(msg.text());
+    if (msg.type() === 'error' && /Content Security Policy/i.test(msg.text())) {
+      const { url, lineNumber } = msg.location();
+      cspViolations.push(`${msg.text()} (${url || page.url()}${lineNumber ? `:${lineNumber}` : ''})`);
+    }
   });
 }
 export function checkCspAfterEach() {
   test.beforeEach(({ page }) => watchCsp(page));
   test.afterEach(() => {
-    expect(cspViolations, 'violaciones de CSP en el navegador').toEqual([]);
-    cspViolations.length = 0;
+    // Se vacía ANTES de comprobar: si no, un test que falla arrastraría sus violaciones al siguiente.
+    const found = cspViolations.splice(0);
+    expect(found, 'violaciones de CSP en el navegador').toEqual([]);
   });
 }
 
