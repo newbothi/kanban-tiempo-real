@@ -33,6 +33,7 @@
     "fastify": "^5.12.5",
     "fastify-plugin": "^6.0.0",
     "fractional-indexing": "^4.0.0",
+    "lodash": "4.17.20",
     "socket.io": "^4.8.4",
     "tsx": "^4.23.15",
     "zod": "^4.1.0"
