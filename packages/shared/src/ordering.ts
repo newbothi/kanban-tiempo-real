@@ -1,4 +1,16 @@
-import { generateKeyBetween } from 'fractional-indexing';
+import { generateKeyBetween, generateNKeysBetween } from 'fractional-indexing';
+
+/**
+ * Largo máximo razonable de una clave (S-20). Mover muchas veces una tarjeta al mismo
+ * hueco alarga la clave; pasado este largo el servidor reparte de nuevo las posiciones
+ * de la columna (la base admite hasta 255).
+ */
+export const MAX_POSITION_LENGTH = 64;
+
+/** `n` claves nuevas, cortas y bien repartidas (para reordenar una columna completa). */
+export function evenKeys(n: number): string[] {
+  return generateNKeysBetween(null, null, n);
+}
 
 type Positioned = { position: string };
 

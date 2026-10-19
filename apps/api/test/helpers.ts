@@ -110,4 +110,14 @@ export async function registerUser(base: string, name: string) {
   return Object.assign(c, { id: r.data.id as string, email });
 }
 
+/** Hace que `member` sea miembro del tablero de `owner` (por la API, como en la app). */
+export async function addMember(
+  owner: Awaited<ReturnType<typeof registerUser>>,
+  boardId: string,
+  member: Awaited<ReturnType<typeof registerUser>>,
+) {
+  const r = await owner.req('POST', `/boards/${boardId}/members`, { email: member.email });
+  if (r.status >= 300) throw new Error(`invitación falló: ${r.status} ${JSON.stringify(r.data)}`);
+}
+
 export { prisma };

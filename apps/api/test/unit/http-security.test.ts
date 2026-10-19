@@ -32,6 +32,13 @@ describe('S-11: cabeceras de seguridad', () => {
   });
 });
 
+describe('S-16: ids con formato inválido', () => {
+  it('responden 404 antes de llegar a la base', async () => {
+    const r = await app.inject({ method: 'GET', url: "/api/boards/1'%20OR%20'1'='1" });
+    expect(r.statusCode).toBe(404);
+  });
+});
+
 describe('archivos estáticos', () => {
   it('nunca sirve archivos ocultos como .env', async () => {
     const r = await app.inject({ method: 'GET', url: '/.env' });

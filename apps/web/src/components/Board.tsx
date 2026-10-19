@@ -59,7 +59,12 @@ export function Board({ board, insights }: { board: BoardDto; insights?: Map<str
       const target = cardsOf(prev, to);
       const overIndex = target.findIndex((c) => c.id === over.id);
       const index = overIndex >= 0 ? overIndex : target.length;
-      const position = positionForMove(prev, cardId, to, index);
+      let position: string;
+      try {
+        position = positionForMove(prev, cardId, to, index);
+      } catch {
+        return prev; // posiciones locales inconsistentes: el servidor las corregirá
+      }
       return prev.map((c) => (c.id === cardId ? { ...c, columnId: to, position } : c));
     });
   };

@@ -13,6 +13,7 @@ import { cardRoutes } from './routes/cards';
 import type { ThrottleOptions } from './auth/throttle';
 import { MetricsService, type MetricsOptions } from './ml/metrics';
 import { allowedOrigins } from './origins';
+import { SlidingWindowLimiter, resolveLimits, type LimitsOptions } from './limits';
 
 export interface BuildOptions {
   logger?: boolean;
@@ -30,6 +31,8 @@ export interface BuildOptions {
   loginThrottle?: ThrottleOptions;
   /** Caché y límites del cálculo de métricas. */
   metrics?: MetricsOptions;
+  /** Topes por usuario y por tablero (S-16). */
+  limits?: LimitsOptions;
 }
 
 /** Confía solo en los últimos `hops` saltos (lo mismo que hace proxy-addr con un número). */
@@ -131,8 +134,10 @@ export async function buildApp(opts: BuildOptions = {}) {
   // Registro, login, logout, /me + el decorador app.authenticate
   await app.register(authPlugin, { rateLimitMax: opts.authRateLimit, throttle: opts.loginThrottle });
 
-  await app.register(boardRoutes, { prefix: '/api', metrics: new MetricsService(opts.metrics) });
-  await app.register(cardRoutes, { prefix: '/api' });
+  const limits = resolveLimits(opts.limits);
+  const writes = new SlidingWindowLimiter(limits.writesPerMinute, 60_000);
+  await app.register(boardRoutes, { prefix: '/api', metrics: new MetricsService(opts.metrics), limits, writes });
+  await app.register(cardRoutes, { prefix: '/api', limits, writes });
 
   // En producción, la misma API sirve el front compilado: un solo origen,
   // así la cookie de sesión y el WebSocket funcionan sin configurar CORS.
@@ -149,7 +154,7 @@ export async function buildApp(opts: BuildOptions = {}) {
   }
 
   // Socket.IO comparte el servidor HTTP de Fastify (ruta /socket.io).
-  const io = attachRealtime(app);
+  const io = attachRealtime(app, { socketEventsPer10s: limits.socketEventsPer10s });
   app.addHook('preClose', async () => {
     io.disconnectSockets(true); // si no, los WebSockets abiertos impiden cerrar el servidor
   });

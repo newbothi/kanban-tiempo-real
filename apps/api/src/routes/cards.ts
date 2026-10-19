@@ -1,6 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  MAX_POSITION_LENGTH,
   createCardSchema,
+  evenKeys,
   keyAtEnd,
   moveCardSchema,
   positionForMove,
@@ -8,14 +10,50 @@ import {
   type CardDto,
 } from '@kanban/shared';
 import { prisma } from '../db';
-import { notFound, parseOr400 } from '../http';
+import { limitWrites, notFound, parseOr400, rejectMalformedIds } from '../http';
 import { boardIdOfCard, boardIdOfColumn, requireBoardRole } from '../auth/access';
 import { notify } from '../realtime';
+import type { RouteOptions } from './boards';
 
 const cardSelect = { id: true, columnId: true, title: true, position: true } as const;
 
-export async function cardRoutes(app: FastifyInstance) {
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * S-20: vuelve a repartir las posiciones de una columna con claves cortas, en el orden
+ * actual (empates por id). Se usa cuando una clave se alargó demasiado o cuando dos
+ * tarjetas quedaron con la misma posición (p. ej. por dos creaciones simultáneas).
+ */
+async function rebalanceColumn(tx: Tx, columnId: string) {
+  const cards = await tx.card.findMany({
+    where: { columnId },
+    select: { id: true, position: true },
+    orderBy: [{ position: 'asc' }, { id: 'asc' }],
+  });
+  const keys = evenKeys(cards.length);
+  for (const [i, c] of cards.entries()) {
+    await tx.card.update({ where: { id: c.id }, data: { position: keys[i]! } });
+  }
+}
+
+/** Clave para el movimiento; si no se puede calcular bien, reordena la columna y reintenta. */
+async function positionWithRebalance(tx: Tx, columnId: string, cardId: string, index: number) {
+  const load = () =>
+    tx.card.findMany({ where: { columnId }, select: { id: true, columnId: true, position: true } });
+  try {
+    const position = positionForMove(await load(), cardId, columnId, index);
+    if (position.length <= MAX_POSITION_LENGTH) return { position, rebalanced: false };
+  } catch {
+    // claves duplicadas: generateKeyBetween no puede ubicar algo entre dos iguales
+  }
+  await rebalanceColumn(tx, columnId);
+  return { position: positionForMove(await load(), cardId, columnId, index), rebalanced: true };
+}
+
+export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
+  app.addHook('preValidation', rejectMalformedIds);
   app.addHook('preHandler', app.authenticate);
+  app.addHook('preHandler', limitWrites(opts.writes));
 
   // Crear tarjeta al final de una columna
   app.post('/cards', async (req, reply) => {
@@ -25,17 +63,36 @@ export async function cardRoutes(app: FastifyInstance) {
     const boardId = await boardIdOfColumn(input.columnId);
     if (!(await requireBoardRole(reply, boardId, req.user.sub))) return;
 
-    const card = await prisma.$transaction(async (tx) => {
-      const last = await tx.card.findFirst({
-        where: { columnId: input.columnId },
-        orderBy: { position: 'desc' },
-        select: { position: true },
+    // S-16: tope de tarjetas por tablero.
+    const total = await prisma.card.count({ where: { column: { boardId: boardId! } } });
+    if (total >= opts.limits.cardsPerBoard) {
+      return reply.code(403).send({
+        error: 'QuotaExceeded',
+        message: `El tablero llegó al máximo de ${opts.limits.cardsPerBoard} tarjetas`,
       });
+    }
+
+    let rebalanced = false;
+    const card = await prisma.$transaction(async (tx) => {
+      const lastKey = async () =>
+        (
+          await tx.card.findFirst({
+            where: { columnId: input.columnId },
+            orderBy: { position: 'desc' },
+            select: { position: true },
+          })
+        )?.position;
+      let last = await lastKey();
+      if (last && last.length >= MAX_POSITION_LENGTH) {
+        await rebalanceColumn(tx, input.columnId);
+        rebalanced = true;
+        last = await lastKey();
+      }
       const created = await tx.card.create({
         data: {
           columnId: input.columnId,
           title: input.title,
-          position: keyAtEnd(last ? [last] : []),
+          position: keyAtEnd(last ? [{ position: last }] : []),
         },
         select: cardSelect,
       });
@@ -47,6 +104,7 @@ export async function cardRoutes(app: FastifyInstance) {
     });
 
     notify.cardCreated(req, boardId!, card);
+    if (rebalanced) notify.boardReordered(boardId!);
     return reply.code(201).send(card satisfies CardDto);
   });
 
@@ -78,17 +136,17 @@ export async function cardRoutes(app: FastifyInstance) {
     if (!boardId) return notFound(reply, 'La tarjeta');
     if (!(await requireBoardRole(reply, boardId, req.user.sub))) return;
 
-    const result = await prisma.$transaction(async (tx) => {
+    let rebalanced = false;
+    const result = await prisma.$transaction(
+      async (tx) => {
       // La columna destino debe pertenecer al MISMO tablero
       // (si no, alguien podría mover tarjetas a un tablero ajeno).
       const target = await tx.column.findUnique({ where: { id: input.columnId } });
       if (!target || target.boardId !== boardId) return null;
 
-      const siblings = await tx.card.findMany({
-        where: { columnId: input.columnId },
-        select: { id: true, columnId: true, position: true },
-      });
-      const position = positionForMove(siblings, cardId, input.columnId, input.index);
+      const placed = await positionWithRebalance(tx, input.columnId, cardId, input.index);
+      rebalanced = placed.rebalanced;
+      const position = placed.position;
 
       const before = await tx.card.findUniqueOrThrow({
         where: { id: cardId },
@@ -112,10 +170,14 @@ export async function cardRoutes(app: FastifyInstance) {
         });
       }
       return updated;
-    });
+      },
+      // Reordenar una columna grande toma más que los 5 s por defecto.
+      { timeout: 20_000 },
+    );
 
     if (!result) return notFound(reply, 'La columna');
     notify.cardUpdated(req, boardId, result);
+    if (rebalanced) notify.boardReordered(boardId);
     return result;
   });
 

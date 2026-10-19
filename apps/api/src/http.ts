@@ -1,5 +1,6 @@
-import type { FastifyReply } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
+import type { SlidingWindowLimiter } from './limits';
 
 /** Valida con Zod; si falla responde 400 y devuelve null. */
 export function parseOr400<S extends z.ZodType>(
@@ -34,4 +35,33 @@ export function clientIp(req: { ip: string }): string {
   const v6 = /^\[([0-9a-fA-F:.]+)\]:\d+$/.exec(ip);
   if (v6) return v6[1]!;
   return ip;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Todos los :id de las rutas son UUID. Uno con otro formato no puede existir:
+ * se responde 404 de inmediato, sin consultar la base (S-16).
+ */
+export async function rejectMalformedIds(req: FastifyRequest, reply: FastifyReply) {
+  const params = (req.params ?? {}) as Record<string, unknown>;
+  for (const value of Object.values(params)) {
+    if (typeof value === 'string' && !UUID.test(value)) {
+      return reply.code(404).send({ error: 'NotFound', message: 'No existe' });
+    }
+  }
+}
+
+/** preHandler: limita las escrituras (POST, PATCH, DELETE) por usuario (S-16). */
+export function limitWrites(limiter: SlidingWindowLimiter) {
+  return async (req: FastifyRequest, reply: FastifyReply) => {
+    if (req.method === 'GET' || req.method === 'HEAD') return;
+    const wait = limiter.take(req.user.sub);
+    if (wait > 0) {
+      return reply
+        .code(429)
+        .header('retry-after', String(Math.ceil(wait / 1000)))
+        .send({ error: 'TooManyRequests', message: 'Demasiados cambios seguidos; espera un momento' });
+    }
+  };
 }

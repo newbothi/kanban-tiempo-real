@@ -76,6 +76,10 @@ export function useBoardRealtime(boardId: string, onRemoved: () => void) {
     const onMembersChanged = (p: { boardId: string }) => {
       if (p.boardId === boardId) void qc.invalidateQueries({ queryKey: keys.members(boardId) });
     };
+    // S-20: el servidor repartió de nuevo las posiciones de una columna: se recarga el tablero.
+    const onReordered = (p: { boardId: string }) => {
+      if (p.boardId === boardId) void qc.invalidateQueries({ queryKey: key });
+    };
     const onBoardRemoved = (p: { boardId: string }) => {
       if (p.boardId !== boardId) return;
       qc.removeQueries({ queryKey: key });
@@ -91,6 +95,7 @@ export function useBoardRealtime(boardId: string, onRemoved: () => void) {
     socket.on('board:presence', onPresence);
     socket.on('board:membersChanged', onMembersChanged);
     socket.on('board:removed', onBoardRemoved);
+    socket.on('board:reordered', onReordered);
 
     if (socket.connected) {
       firstConnect = false;
@@ -102,6 +107,7 @@ export function useBoardRealtime(boardId: string, onRemoved: () => void) {
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onDisconnect);
+      socket.off('board:reordered', onReordered);
       socket.off('card:created', onUpsert);
       socket.off('card:updated', onUpsert);
       socket.off('card:deleted', onDeleted);
