@@ -183,7 +183,7 @@ jobs:
           retention-days: 7
 
   docker:
-    name: Imágenes Docker (Trivy, SBOM y publicación)
+    name: Imagen Docker (${{ matrix.name }})
     # En los PR: construye y escanea. En main, y solo si TODO lo anterior pasó: además publica.
     needs: [check, ml, dependencies, integration]
     runs-on: ubuntu-24.04
