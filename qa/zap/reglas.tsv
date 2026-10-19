@@ -1,0 +1,13 @@
+# Reglas del ZAP baseline (pasivo). Formato: id<TAB>acción<TAB>(comentario)
+# Por defecto todo es WARN; aquí se suben a FAIL las que nunca deberían aparecer
+# y se documentan las que se ignoran a propósito.
+10010	FAIL	(Cookie sin HttpOnly)
+10011	FAIL	(Cookie sin Secure)
+10054	FAIL	(Cookie sin SameSite)
+10020	FAIL	(Falta protección contra clickjacking)
+10021	FAIL	(Falta X-Content-Type-Options)
+10035	FAIL	(Falta Strict-Transport-Security)
+10038	FAIL	(Falta Content-Security-Policy)
+10037	FAIL	(El servidor revela X-Powered-By)
+10098	FAIL	(CORS mal configurado)
+90022	FAIL	(Mensajes de error con detalles internos)

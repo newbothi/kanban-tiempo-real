@@ -12,7 +12,7 @@
     "start": "npm run start -w @kanban/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test -w @kanban/shared && npm run test -w @kanban/api",
-    "test:unit": "npm run test -w @kanban/shared && npm run test:unit -w @kanban/api",
+    "test:unit": "npm run test -w @kanban/shared && npm run test:unit -w @kanban/api && npm run test -w @kanban/web",
     "test:api": "npm run test -w @kanban/api",
     "test:e2e": "npm run test:e2e -w @kanban/web",
     "lint": "eslint ."

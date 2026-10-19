@@ -1,67 +1,20 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import { addCard, checkCspAfterEach, column, createBoard, drag, makeUser, newUserPage, register } from './helpers.ts';
 
-// Correos únicos por ejecución: no hace falta limpiar la base entre corridas.
-const run = Date.now().toString(36);
-const users = {
-  ana: { name: 'Ana', email: `ana-${run}@e2e.cl`, password: 'clave-ana-123' },
-  beto: { name: 'Beto', email: `beto-${run}@e2e.cl`, password: 'clave-beto-123' },
-};
-
-// S-11: la política CSP no debe romper nada. Cualquier recurso bloqueado se anota aquí
-// y el test falla al final, con el detalle de lo que se bloqueó.
-const cspViolations: string[] = [];
-function watchCsp(page: Page) {
-  page.on('console', (msg) => {
-    if (msg.type() === 'error' && /Content Security Policy/i.test(msg.text())) cspViolations.push(msg.text());
-  });
-}
-test.beforeEach(({ page }) => watchCsp(page));
-test.afterEach(() => {
-  expect(cspViolations, 'violaciones de CSP en el navegador').toEqual([]);
-  cspViolations.length = 0;
-});
-
-/** Cada usuario en su propio contexto = como si fueran dos navegadores distintos. */
-async function newUserPage(browser: Browser) {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  watchCsp(page);
-  return page;
-}
-
-async function register(page: Page, u: (typeof users)['ana']) {
-  await page.goto('/');
-  await page.getByRole('tab', { name: 'Crear cuenta' }).click();
-  await page.getByLabel('Nombre').fill(u.name);
-  await page.getByLabel('Correo').fill(u.email);
-  await page.getByLabel('Contraseña').fill(u.password);
-  await page.getByRole('button', { name: 'Crear cuenta' }).last().click();
-  await expect(page.getByText(u.name, { exact: true })).toBeVisible();
-}
-
-const column = (page: Page, title: string) =>
-  page.locator('section.column').filter({ has: page.getByRole('heading', { name: title }) });
-
-/** Arrastre "humano" (dnd-kit necesita movimiento real del puntero, no un drop instantáneo). */
-async function drag(page: Page, from: ReturnType<Page['locator']>, to: ReturnType<Page['locator']>) {
-  const a = (await from.boundingBox())!;
-  const b = (await to.boundingBox())!;
-  await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(a.x + a.width / 2 + 10, a.y + a.height / 2, { steps: 5 });
-  await page.mouse.move(b.x + b.width / 2, b.y + 30, { steps: 15 });
-  await page.mouse.up();
-}
+checkCspAfterEach();
 
 test('login: credenciales incorrectas muestran un error', async ({ page }) => {
   await page.goto('/');
-  await page.getByLabel('Correo').fill('nadie@e2e.cl');
+  await page.getByLabel('Correo').fill(makeUser('Nadie').email);
   await page.getByLabel('Contraseña').fill('incorrecta');
   await page.getByRole('button', { name: 'Entrar' }).click();
   await expect(page.getByRole('alert')).toHaveText('Correo o contraseña incorrectos');
 });
 
-test('dos usuarios colaboran en tiempo real', async ({ browser }) => {
+test('dos usuarios colaboran en tiempo real', async ({ browser }, info) => {
+  // En el móvil las columnas quedan una bajo otra: el arrastre entre columnas se prueba en escritorio.
+  test.skip(info.project.name === 'movil', 'flujo de escritorio (arrastre entre columnas)');
+  const users = { ana: makeUser('Ana'), beto: makeUser('Beto') };
   const ana = await newUserPage(browser);
   const beto = await newUserPage(browser);
 
@@ -72,12 +25,8 @@ test('dos usuarios colaboran en tiempo real', async ({ browser }) => {
   });
 
   await test.step('Ana crea un tablero y una tarjeta', async () => {
-    await ana.getByLabel('Nombre del nuevo tablero').fill('Sprint E2E');
-    await ana.getByLabel('Nombre del nuevo tablero').press('Enter');
-    await expect(ana.getByRole('heading', { name: 'Sprint E2E' })).toBeVisible();
-    await ana.getByLabel('Nueva tarjeta en Por hacer').fill('Escribir tests E2E');
-    await ana.getByLabel('Nueva tarjeta en Por hacer').press('Enter');
-    await expect(column(ana, 'Por hacer').getByText('Escribir tests E2E')).toBeVisible();
+    await createBoard(ana, 'Sprint E2E');
+    await addCard(ana, 'Por hacer', 'Escribir tests E2E');
   });
 
   await test.step('Beto no puede ver el tablero antes de ser invitado', async () => {
@@ -112,8 +61,7 @@ test('dos usuarios colaboran en tiempo real', async ({ browser }) => {
   });
 
   await test.step('lo que crea Beto le aparece a Ana', async () => {
-    await beto.getByLabel('Nueva tarjeta en En progreso').fill('Tarjeta de Beto');
-    await beto.getByLabel('Nueva tarjeta en En progreso').press('Enter');
+    await addCard(beto, 'En progreso', 'Tarjeta de Beto');
     await expect(column(ana, 'En progreso').getByText('Tarjeta de Beto')).toBeVisible();
   });
 
@@ -122,6 +70,11 @@ test('dos usuarios colaboran en tiempo real', async ({ browser }) => {
     await expect(column(beto, 'Hecho').getByText('Escribir tests E2E')).toBeVisible();
     await expect(column(ana, 'Hecho').getByText('Escribir tests E2E')).toBeVisible();
     await expect(column(ana, 'Por hacer').getByText('Escribir tests E2E')).toHaveCount(0);
+  });
+
+  await test.step('Ana borra la tarjeta de Beto y a él le desaparece', async () => {
+    await ana.getByRole('button', { name: 'Eliminar Tarjeta de Beto' }).click();
+    await expect(beto.getByText('Tarjeta de Beto')).toHaveCount(0);
   });
 
   await test.step('el cambio quedó guardado (sobrevive a recargar)', async () => {
@@ -148,4 +101,40 @@ test('dos usuarios colaboran en tiempo real', async ({ browser }) => {
     await expect(beto.getByText(/fue eliminado o ya no tienes acceso/)).toBeVisible();
     await expect(beto.getByRole('button', { name: /Sprint E2E/ })).toHaveCount(0);
   });
+});
+
+test('un miembro sale del tablero por su cuenta', async ({ browser }, info) => {
+  test.skip(info.project.name === 'movil', 'cubierto en escritorio');
+  const users = { ana: makeUser('Ana'), beto: makeUser('Beto') };
+  const ana = await newUserPage(browser);
+  const beto = await newUserPage(browser);
+  await register(ana, users.ana);
+  await register(beto, users.beto);
+  await createBoard(ana, 'Para salir');
+  await ana.getByRole('button', { name: 'Miembros' }).click();
+  await ana.getByLabel('Invitar por correo').fill(users.beto.email);
+  await ana.getByRole('button', { name: 'Invitar' }).click();
+  await beto.getByRole('button', { name: 'Aceptar' }).click();
+  await expect(beto.getByRole('heading', { name: 'Para salir' })).toBeVisible();
+
+  beto.once('dialog', (d) => d.accept());
+  await beto.getByRole('button', { name: 'Miembros' }).click();
+  await beto.getByRole('button', { name: 'Salir del tablero' }).click();
+  await expect(beto.getByText('Aún no tienes tableros')).toBeVisible();
+  // Ana ve que ya no es miembro, sin recargar.
+  await expect(ana.locator('.members__list').getByText(users.beto.email)).toHaveCount(0);
+});
+
+test('cerrar sesión en una pestaña la cierra en la otra', async ({ browser }) => {
+  const u = makeUser('Sesion');
+  const page1 = await newUserPage(browser);
+  await register(page1, u);
+  const page2 = await page1.context().newPage();
+  await page2.goto('/');
+  await expect(page2.getByText(u.name, { exact: true })).toBeVisible();
+
+  await page1.getByRole('button', { name: 'Cerrar sesión' }).click();
+  await expect(page1.getByRole('button', { name: 'Entrar' })).toBeVisible();
+  await expect(page2.getByText('Se cerró tu sesión. Vuelve a iniciar sesión.')).toBeVisible();
+  await expect(page2.getByRole('button', { name: 'Entrar' })).toBeVisible();
 });
