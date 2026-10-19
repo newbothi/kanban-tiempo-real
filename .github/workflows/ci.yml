@@ -223,15 +223,21 @@ jobs:
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
       # trivy-action v0.35.0: el único tag que no fue alterado en el incidente de marzo de 2026.
-      - name: Trivy (vulnerabilidades HIGH/CRITICAL con arreglo disponible)
+      - name: Trivy (escaneo de la imagen)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: kanban-${{ matrix.name }}:ci
           version: v0.69.3
           severity: HIGH,CRITICAL
           ignore-unfixed: true
-          exit-code: '1'
-          format: table
+          format: json
+          output: trivy-${{ matrix.name }}.json
+      - name: Falla si hay vulnerabilidades HIGH/CRITICAL con arreglo disponible
+        run: |
+          jq -r '.Results[]? | .Target as $t | .Vulnerabilities[]? |
+            "::error title=\(.Severity) \(.VulnerabilityID)::\(.PkgName) \(.InstalledVersion) → \(.FixedVersion) (\($t))"' \
+            trivy-${{ matrix.name }}.json | sort -u | tee hallazgos.txt
+          [ ! -s hallazgos.txt ]
       - name: SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
@@ -243,7 +249,9 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sbom-${{ matrix.name }}
-          path: sbom-${{ matrix.name }}.cdx.json
+          path: |
+            sbom-${{ matrix.name }}.cdx.json
+            trivy-${{ matrix.name }}.json
           retention-days: 30
 
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
