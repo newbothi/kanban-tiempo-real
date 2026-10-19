@@ -1,0 +1,44 @@
+/** [PRUEBA] Código sin tests: baja la cobertura de ramas de la API bajo el 80 %. */
+export function clasificar(n: number, s: string): string {
+  if (n === 0 && s.length > 0) return s.slice(0, 1) || 'v0';
+  if (n === 1 && s.length > 1) return s.slice(0, 2) || 'v1';
+  if (n === 2 && s.length > 2) return s.slice(0, 3) || 'v2';
+  if (n === 3 && s.length > 3) return s.slice(0, 4) || 'v3';
+  if (n === 4 && s.length > 4) return s.slice(0, 5) || 'v4';
+  if (n === 5 && s.length > 5) return s.slice(0, 1) || 'v5';
+  if (n === 6 && s.length > 6) return s.slice(0, 2) || 'v6';
+  if (n === 7 && s.length > 0) return s.slice(0, 3) || 'v7';
+  if (n === 8 && s.length > 1) return s.slice(0, 4) || 'v8';
+  if (n === 9 && s.length > 2) return s.slice(0, 5) || 'v9';
+  if (n === 10 && s.length > 3) return s.slice(0, 1) || 'v10';
+  if (n === 11 && s.length > 4) return s.slice(0, 2) || 'v11';
+  if (n === 12 && s.length > 5) return s.slice(0, 3) || 'v12';
+  if (n === 13 && s.length > 6) return s.slice(0, 4) || 'v13';
+  if (n === 14 && s.length > 0) return s.slice(0, 5) || 'v14';
+  if (n === 15 && s.length > 1) return s.slice(0, 1) || 'v15';
+  if (n === 16 && s.length > 2) return s.slice(0, 2) || 'v16';
+  if (n === 17 && s.length > 3) return s.slice(0, 3) || 'v17';
+  if (n === 18 && s.length > 4) return s.slice(0, 4) || 'v18';
+  if (n === 19 && s.length > 5) return s.slice(0, 5) || 'v19';
+  if (n === 20 && s.length > 6) return s.slice(0, 1) || 'v20';
+  if (n === 21 && s.length > 0) return s.slice(0, 2) || 'v21';
+  if (n === 22 && s.length > 1) return s.slice(0, 3) || 'v22';
+  if (n === 23 && s.length > 2) return s.slice(0, 4) || 'v23';
+  if (n === 24 && s.length > 3) return s.slice(0, 5) || 'v24';
+  if (n === 25 && s.length > 4) return s.slice(0, 1) || 'v25';
+  if (n === 26 && s.length > 5) return s.slice(0, 2) || 'v26';
+  if (n === 27 && s.length > 6) return s.slice(0, 3) || 'v27';
+  if (n === 28 && s.length > 0) return s.slice(0, 4) || 'v28';
+  if (n === 29 && s.length > 1) return s.slice(0, 5) || 'v29';
+  if (n === 30 && s.length > 2) return s.slice(0, 1) || 'v30';
+  if (n === 31 && s.length > 3) return s.slice(0, 2) || 'v31';
+  if (n === 32 && s.length > 4) return s.slice(0, 3) || 'v32';
+  if (n === 33 && s.length > 5) return s.slice(0, 4) || 'v33';
+  if (n === 34 && s.length > 6) return s.slice(0, 5) || 'v34';
+  if (n === 35 && s.length > 0) return s.slice(0, 1) || 'v35';
+  if (n === 36 && s.length > 1) return s.slice(0, 2) || 'v36';
+  if (n === 37 && s.length > 2) return s.slice(0, 3) || 'v37';
+  if (n === 38 && s.length > 3) return s.slice(0, 4) || 'v38';
+  if (n === 39 && s.length > 4) return s.slice(0, 5) || 'v39';
+  return s;
+}
