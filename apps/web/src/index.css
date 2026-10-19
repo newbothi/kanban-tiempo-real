@@ -4,8 +4,11 @@
   --column-over: #dde3ee;
   --card: #ffffff;
   --text: #1f2430;
-  --muted: #6b7280;
-  --accent: #3b6fd8;
+  /* Texto secundario, enlaces y errores con contraste ≥ 4,5:1 sobre todos los fondos (WCAG AA, axe) */
+  --muted: #596070;
+  --accent: #2d5fc8;
+  --link: #2d5fc8;
+  --danger: #b83232;
   --shadow: 0 1px 2px rgb(0 0 0 / 0.08);
   /* Gráficos (paleta validada para daltonismo, contraste ≥ 3:1 sobre --card) */
   --chart-1: #2a78d6;
@@ -27,6 +30,8 @@
     --card: #2a2e37;
     --text: #e6e8ec;
     --muted: #9aa1ad;
+    --link: #6f9cf0;
+    --danger: #f07272;
     --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
     --chart-1: #3987e5;
     --chart-2: #d95926;
@@ -69,7 +74,7 @@ body { margin: 0; }
 .column__cards { display: flex; flex-direction: column; gap: 8px; min-height: 48px; }
 .column__empty {
   margin: 0; padding: 14px; text-align: center; color: var(--muted); font-size: 0.85rem;
-  border: 1px dashed var(--muted); border-radius: 8px; opacity: 0.6;
+  border: 1px dashed color-mix(in srgb, var(--muted) 50%, transparent); border-radius: 8px;
 }
 
 .column__form input {
@@ -99,9 +104,11 @@ body { margin: 0; }
   cursor: pointer; padding: 0 2px; opacity: 0; transition: opacity 0.15s;
 }
 .card:hover .card__delete, .card__delete:focus-visible { opacity: 1; }
+/* En pantallas táctiles no hay hover: el botón para borrar se ve siempre. */
+@media (hover: none) { .card__delete { opacity: 1; } }
 
 .status { color: var(--muted); }
-.status--error { color: #d14343; }
+.status--error { color: var(--danger); }
 .status code { font-size: 0.9em; }
 .primary {
   background: var(--accent); color: #fff; border: none; border-radius: 8px;
@@ -120,11 +127,11 @@ body { margin: 0; }
 /* ---------- Fase 4 ---------- */
 button.link {
   background: none; border: none; padding: 0; font: inherit; font-size: 0.85rem;
-  color: var(--accent); cursor: pointer;
+  color: var(--link); cursor: pointer;
 }
 button.link:hover { text-decoration: underline; }
 button.link:disabled { opacity: 0.5; cursor: default; }
-.danger, button.link.danger { color: #d14343; }
+.danger, button.link.danger { color: var(--danger); }
 
 input {
   font: inherit; color: var(--text); background: var(--card);
@@ -147,7 +154,7 @@ input:focus { outline: none; border-color: var(--accent); }
   font-size: 0.88rem; color: var(--muted); cursor: pointer;
 }
 .auth__tabs button.is-active { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
-.auth__error { margin: 0; color: #d14343; font-size: 0.85rem; }
+.auth__error { margin: 0; color: var(--danger); font-size: 0.85rem; }
 .auth__hint { margin: 0; text-align: center; font-size: 0.8rem; color: var(--muted); }
 
 /* Selector de tableros */
@@ -214,7 +221,8 @@ input:focus { outline: none; border-color: var(--accent); }
 }
 .tabs button[aria-selected='true'] { background: var(--card); color: var(--text); box-shadow: var(--shadow); }
 
-.card__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.card__body { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; align-self: stretch; justify-content: center; }
+.card__body:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 4px; }
 .card__insights { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .card__eta { font-size: 0.75rem; color: var(--muted); }
 .status-tag {
@@ -301,6 +309,8 @@ input:focus { outline: none; border-color: var(--accent); }
 
 /* Avisos de la cuenta e invitaciones recibidas */
 .notice--warning { border-left: 3px solid #d9a520; }
+/* Dentro de un aviso, el enlace usa el color del texto (subrayado): contraste asegurado en ambos temas. */
+.notice .link { color: inherit; text-decoration: underline; }
 .invites { display: flex; flex-direction: column; gap: 8px; }
 .invites__item {
   display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
