@@ -20,7 +20,7 @@ export function MetricsView({ board, data, error, isFetching }: Props) {
         <h3>{unavailable ? 'El servicio de análisis no está disponible' : 'No se pudieron calcular las métricas'}</h3>
         <p>
           {unavailable
-            ? 'El tablero funciona normalmente; solo el análisis (servicio Python) no responde. En local, levántalo con uvicorn en el puerto 8000.'
+            ? 'El tablero funciona normalmente; solo el análisis (servicio Python) no responde. En local, levántalo con uvicorn y revisa que ML_URL en apps/api/.env apunte a su puerto.'
             : error.message}
         </p>
       </div>
@@ -140,8 +140,12 @@ export function MetricsView({ board, data, error, isFetching }: Props) {
                     <td>{fmtDays(p.elapsedDays)}</td>
                     <td>{fmtDays(p.predictedLeadTimeDays)}</td>
                     <td>
-                      {p.overdue ? (
-                        <span className="status-tag status-tag--serious">⚠ Atrasada</span>
+                      {waiting.has(p.cardId) ? (
+                        <span className="hint" title="Aún no se empieza: la estimación corre desde que entra a trabajo">
+                          En cola
+                        </span>
+                      ) : p.overdue ? (
+                        <span className="status-tag status-tag--warning">⏱ Atrasada</span>
                       ) : (
                         `~${fmtDays(p.remainingDays)}`
                       )}
