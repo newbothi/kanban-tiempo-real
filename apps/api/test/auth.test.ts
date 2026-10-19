@@ -105,3 +105,70 @@ describe('rate limit', () => {
     }
   });
 });
+
+describe('S-02: el rate limit no se salta falseando la IP', () => {
+  it('cambiar X-Forwarded-For en cada intento no evita el bloqueo', async () => {
+    // Producción: un proxy delante (Azure), que AGREGA la IP real al final.
+    const limited = await startServer({ authRateLimit: 3, trustProxy: 1 });
+    try {
+      const c = httpClient(limited.base);
+      const statuses = [];
+      for (let i = 0; i < 4; i++) {
+        const r = await c.req(
+          'POST',
+          '/auth/login',
+          { email: `x${i}@correo.cl`, password: 'mala' },
+          // La primera entrada la inventa el atacante; la última es la que agrega el proxy.
+          { 'x-forwarded-for': `6.6.6.${i}, 203.0.113.5:${50000 + i}` },
+        );
+        statuses.push(r.status);
+      }
+      expect(statuses).toEqual([401, 401, 401, 429]);
+    } finally {
+      await limited.app.close();
+    }
+  });
+
+  it('cada correo tiene pocos intentos aunque se cambie de IP', async () => {
+    const limited = await startServer({
+      trustProxy: 1,
+      loginThrottle: { freeAttempts: 2, baseMs: 60_000 },
+    });
+    try {
+      const c = httpClient(limited.base);
+      const statuses = [];
+      for (let i = 0; i < 4; i++) {
+        const r = await c.req(
+          'POST',
+          '/auth/login',
+          { email: 'victima@correo.cl', password: `intento-${i}` },
+          { 'x-forwarded-for': `198.51.100.${i}` }, // una IP real distinta en cada intento
+        );
+        statuses.push(r.status);
+      }
+      expect(statuses).toEqual([401, 401, 429, 429]);
+    } finally {
+      await limited.app.close();
+    }
+  });
+
+  it('el bloqueo por correo responde igual exista o no la cuenta', async () => {
+    const limited = await startServer({ loginThrottle: { freeAttempts: 0, baseMs: 60_000 } });
+    try {
+      const c = httpClient(limited.base);
+      await c.req('POST', '/auth/register', { email: 'existe@correo.cl', name: 'Existe', password: 'una-clave-larga' });
+      const out = [];
+      for (const email of ['existe@correo.cl', 'noexiste@correo.cl']) {
+        await c.req('POST', '/auth/login', { email, password: 'mala' });
+        const r = await c.req('POST', '/auth/login', { email, password: 'mala' });
+        out.push([r.status, r.data.error]);
+      }
+      expect(out).toEqual([
+        [429, 'TooManyAttempts'],
+        [429, 'TooManyAttempts'],
+      ]);
+    } finally {
+      await limited.app.close();
+    }
+  });
+});

@@ -18,3 +18,20 @@ export function parseOr400<S extends z.ZodType>(
 export function notFound(reply: FastifyReply, what: string) {
   return reply.code(404).send({ error: 'NotFound', message: `${what} no existe` });
 }
+
+/**
+ * IP del cliente para el rate limit.
+ *
+ * Con `trustProxy` en 1 (un salto: el front-end de Azure), Fastify toma la ÚLTIMA
+ * entrada de X-Forwarded-For, la que agrega Azure, y no la primera, que la escribe
+ * el cliente y se puede falsear (S-02). Azure la envía como "ip:puerto": le quitamos
+ * el puerto para que cada conexión nueva no cuente como una IP distinta.
+ */
+export function clientIp(req: { ip: string }): string {
+  const ip = req.ip;
+  const v4 = /^(\d{1,3}(?:\.\d{1,3}){3}):\d+$/.exec(ip);
+  if (v4) return v4[1]!;
+  const v6 = /^\[([0-9a-fA-F:.]+)\]:\d+$/.exec(ip);
+  if (v6) return v6[1]!;
+  return ip;
+}

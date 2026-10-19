@@ -22,7 +22,9 @@ beforeAll(async () => {
   await fakeMl.listen({ port: 0, host: '127.0.0.1' });
   process.env.ML_URL = `http://127.0.0.1:${(fakeMl.server.address() as AddressInfo).port}`;
   process.env.ML_TOKEN = 'token-de-prueba';
-  server = await startServer();
+  // Sin caché: cada test de este archivo debe llegar al servicio ML falso.
+  // La caché y los límites se prueban en metrics-limits.test.ts.
+  server = await startServer({ metrics: { ttlMs: 0, computesPerUserPerMinute: 100 } });
   ana = await registerUser(server.base, 'Ana');
   beto = await registerUser(server.base, 'Beto');
   boardId = (await ana.req('POST', '/boards', { name: 'Métricas' })).data.id;
@@ -74,7 +76,8 @@ describe('GET /boards/:id/metrics', () => {
     expect(token).toBe('token-de-prueba');
     expect(body.columns.map((c: { id: string }) => c.id).sort()).toEqual([...cols].sort());
     expect(body.cards.map((c: { title: string }) => c.title)).toEqual(['B']);
-    expect(body.events.map((e: { type: string }) => e.type)).toEqual(['created', 'created', 'moved', 'deleted']);
+    // Solo viajan los eventos de tarjetas que existen: los de la tarjeta borrada no aportan.
+    expect(body.events.map((e: { type: string }) => e.type)).toEqual(['created']);
     expect(Date.parse(body.now)).not.toBeNaN();
   });
 

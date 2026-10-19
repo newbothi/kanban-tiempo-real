@@ -122,3 +122,21 @@ describe('perder el acceso', () => {
     await waitForEvent(sBeto, 'board:removed', (p) => p.boardId === boardId);
   });
 });
+
+describe('S-01: un cliente malicioso no puede tumbar el servidor', () => {
+  it('emitir board:join sin callback no mata el proceso', async () => {
+    const s = track(socketFor(server.base, beto.cookie));
+    expect(await connected(s)).toBe('ok');
+    // Sin callback, con un id inválido, con uno válido sin acceso y con basura.
+    (s as any).emit('board:join', 'no-es-un-uuid');
+    (s as any).emit('board:join', boardId);
+    (s as any).emit('board:join', { malicioso: true });
+    (s as any).emit('board:leave', 123);
+    await sleep(300);
+
+    // El servidor sigue vivo: responde HTTP y el mismo socket puede seguir usándose.
+    expect((await ana.req('GET', '/auth/me')).status).toBe(200);
+    expect(s.connected).toBe(true);
+    expect((await joinBoard(s, boardId)).ok).toBe(false); // sigue sin acceso, pero responde
+  });
+});

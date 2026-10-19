@@ -1,7 +1,7 @@
 import type { AddressInfo } from 'node:net';
 import { io, type Socket } from 'socket.io-client';
 import { SESSION_COOKIE, type ClientToServerEvents, type ServerToClientEvents } from '@kanban/shared';
-import { buildApp } from '../src/app';
+import { buildApp, type BuildOptions } from '../src/app';
 import { prisma } from '../src/db';
 
 /** Borra todos los datos (en orden por las claves foráneas). */
@@ -15,8 +15,8 @@ export async function resetDb() {
 }
 
 /** Levanta la API en un puerto libre. */
-export async function startServer(opts: { authRateLimit?: number } = {}) {
-  const app = await buildApp({ logger: false, authRateLimit: opts.authRateLimit ?? 1000 });
+export async function startServer(opts: BuildOptions = {}) {
+  const app = await buildApp({ logger: false, ...opts, authRateLimit: opts.authRateLimit ?? 1000 });
   await app.listen({ port: 0, host: '127.0.0.1' });
   const { port } = app.server.address() as AddressInfo;
   return { app, base: `http://127.0.0.1:${port}` };

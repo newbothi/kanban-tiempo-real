@@ -6,7 +6,8 @@ import rateLimit from '@fastify/rate-limit';
 import bcrypt from 'bcryptjs';
 import { SESSION_COOKIE, loginSchema, registerSchema, type UserDto } from '@kanban/shared';
 import { prisma } from '../db';
-import { parseOr400 } from '../http';
+import { clientIp, parseOr400 } from '../http';
+import { LoginThrottle, type ThrottleOptions } from './throttle';
 
 // Tipos del payload del JWT: `sub` es el id del usuario.
 declare module '@fastify/jwt' {
@@ -57,6 +58,8 @@ const DUMMY_HASH = bcrypt.hashSync('dummy-password-for-timing', BCRYPT_ROUNDS);
 export interface AuthOptions {
   /** Intentos de login/registro por minuto por IP (por defecto 10). */
   rateLimitMax?: number;
+  /** Freno por correo en el login. */
+  throttle?: ThrottleOptions;
 }
 
 export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => {
@@ -66,7 +69,9 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
     cookie: { cookieName: SESSION_COOKIE, signed: false },
     sign: { expiresIn: `${SESSION_DAYS}d` },
   });
-  await app.register(rateLimit, { global: false });
+  // La clave del rate limit es la IP real del cliente, sin puerto (ver clientIp).
+  await app.register(rateLimit, { global: false, keyGenerator: clientIp });
+  const throttle = new LoginThrottle(opts.throttle);
 
   app.decorate('authenticate', async (req: FastifyRequest, reply: FastifyReply) => {
     try {
@@ -107,12 +112,25 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
     const input = parseOr400(loginSchema, req.body, reply);
     if (!input) return;
 
+    // Freno por cuenta: aunque el atacante cambie de IP, cada correo tiene pocos intentos.
+    // Se aplica igual a correos que no existen (no revela cuáles están registrados).
+    const wait = throttle.retryAfterMs(input.email);
+    if (wait > 0) {
+      const seconds = Math.ceil(wait / 1000);
+      return reply
+        .code(429)
+        .header('retry-after', String(seconds))
+        .send({ error: 'TooManyAttempts', message: `Demasiados intentos. Vuelve a intentar en ${seconds} s.` });
+    }
+
     const user = await prisma.user.findUnique({ where: { email: input.email } });
     const ok = await bcrypt.compare(input.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || !ok) {
+      throttle.fail(input.email);
       // Mismo mensaje en ambos casos: no revelamos si el correo existe.
       return reply.code(401).send({ error: 'Unauthorized', message: 'Correo o contraseña incorrectos' });
     }
+    throttle.success(input.email);
 
     setSessionCookie(reply, await reply.jwtSign({ sub: user.id }));
     return { id: user.id, email: user.email, name: user.name } satisfies UserDto;
