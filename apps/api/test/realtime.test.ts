@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { io } from 'socket.io-client';
 import {
   connected,
+  httpClient,
   joinBoard,
   registerUser,
   resetDb,
@@ -138,5 +140,52 @@ describe('S-01: un cliente malicioso no puede tumbar el servidor', () => {
     expect((await ana.req('GET', '/auth/me')).status).toBe(200);
     expect(s.connected).toBe(true);
     expect((await joinBoard(s, boardId)).ok).toBe(false); // sigue sin acceso, pero responde
+  });
+});
+
+describe('S-10: el socket muere con la sesión', () => {
+  it('cerrar sesión en otra pestaña avisa y corta el socket; la cookie vieja ya no conecta', async () => {
+    const carla = await registerUser(server.base, 'Carla');
+    const s = track(socketFor(server.base, carla.cookie));
+    expect(await connected(s)).toBe('ok');
+    const cookieVieja = carla.cookie;
+
+    const ended = waitForEvent(s, 'session:ended');
+    const disconnected = new Promise((r) => s.once('disconnect', r));
+    await carla.req('POST', '/auth/logout');
+    await ended;
+    await disconnected;
+
+    expect(await connected(track(socketFor(server.base, cookieVieja)))).toBe('error:unauthorized');
+  });
+
+  it('el socket se corta cuando vence el token', async () => {
+    const dani = await registerUser(server.base, 'Dani');
+    const id = (await dani.req('GET', '/auth/me')).data.id;
+    const corto = server.app.jwt.sign({ sub: id, sv: 0 }, { expiresIn: 2 });
+    const s = track(socketFor(server.base, `kanban_session=${corto}`));
+    expect(await connected(s)).toBe('ok');
+    await waitForEvent(s, 'session:ended', () => true, 5000);
+  });
+});
+
+describe('S-15: WebSocket desde otro sitio (CSWSH)', () => {
+  const conOrigen = (cookie: string, origin: string) => {
+    const s = io(server.base, {
+      transports: ['websocket'],
+      extraHeaders: { cookie, origin },
+      reconnection: false,
+      forceNew: true,
+    });
+    sockets.push(s as any);
+    return s;
+  };
+
+  it('rechaza la conexión si el Origin es otro sitio, aunque lleve una cookie válida', async () => {
+    expect(await connected(conOrigen(ana.cookie, 'https://sitio-malicioso.example'))).not.toBe('ok');
+  });
+
+  it('acepta el mismo origen', async () => {
+    expect(await connected(conOrigen(ana.cookie, server.base))).toBe('ok');
   });
 });

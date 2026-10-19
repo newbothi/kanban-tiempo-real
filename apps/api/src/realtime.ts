@@ -2,7 +2,6 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { Server } from 'socket.io';
 import { z } from 'zod';
 import {
-  SESSION_COOKIE,
   SOCKET_ID_HEADER,
   boardRoom,
   userRoom,
@@ -11,30 +10,60 @@ import {
   type ServerToClientEvents,
 } from '@kanban/shared';
 import { roleIn } from './auth/access';
+import { isSessionCurrent, sessionCookieName, type SessionClaims } from './auth/session';
+import { allowedOrigins } from './origins';
 
 interface SocketData {
   userId: string;
 }
+
+/** Máximo que acepta setTimeout (~24,8 días); las sesiones duran 7. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 let io: IO | null = null;
 
 /** Conecta Socket.IO al mismo servidor HTTP de Fastify (mismo puerto 3000). */
 export function attachRealtime(app: FastifyInstance) {
+  const origins = allowedOrigins();
   io = new Server(app.server, {
-    cors: { origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173', credentials: true },
+    cors: origins.length ? { origin: origins, credentials: true } : undefined,
+    // S-15: un sitio ajeno no puede abrir un WebSocket con la sesión de la víctima
+    // (Cross-Site WebSocket Hijacking). Se acepta el mismo origen o uno configurado;
+    // sin cabecera Origin (clientes que no son navegadores) no hay cookie ajena que robar.
+    allowRequest: (req, callback) => {
+      const origin = req.headers.origin;
+      if (!origin) return callback(null, true);
+      let sameHost = false;
+      try {
+        sameHost = new URL(origin).host === req.headers.host;
+      } catch {
+        // Origin mal formado
+      }
+      callback(null, sameHost || origins.includes(origin));
+    },
   });
 
   // Autenticación del handshake: el navegador envía la cookie de sesión al conectarse.
-  // Si no hay sesión válida, se rechaza la conexión (el cliente recibe connect_error).
-  io.use((socket, next) => {
+  // Si no hay sesión válida (o se cerró), se rechaza la conexión (connect_error).
+  io.use(async (socket, next) => {
     try {
       // @fastify/cookie expone el mismo parser que usa la API HTTP.
       const cookies = app.parseCookie(socket.handshake.headers.cookie ?? '');
-      const token = cookies[SESSION_COOKIE];
+      const token = cookies[sessionCookieName()];
       if (!token) return next(new Error('unauthorized'));
-      const payload = app.jwt.verify<{ sub: string }>(token);
-      socket.data.userId = payload.sub;
+      const claims = app.jwt.verify<SessionClaims>(token);
+      if (!(await isSessionCurrent(claims))) return next(new Error('unauthorized'));
+      socket.data.userId = claims.sub;
+      // S-10: el socket no vive más que su sesión. Al vencer el token se corta.
+      if (claims.exp) {
+        const ms = Math.min(claims.exp * 1000 - Date.now(), MAX_TIMER_MS);
+        const timer = setTimeout(() => {
+          socket.emit('session:ended');
+          socket.disconnect(true);
+        }, Math.max(ms, 0));
+        socket.once('disconnect', () => clearTimeout(timer));
+      }
       next();
     } catch {
       next(new Error('unauthorized'));
@@ -116,6 +145,13 @@ function targetFor(boardId: string, req: FastifyRequest) {
   const origin = req.headers[SOCKET_ID_HEADER];
   const room = io.to(boardRoom(boardId));
   return typeof origin === 'string' && origin ? room.except(origin) : room;
+}
+
+/** Cierra la sesión en todas las pestañas del usuario: les avisa y corta sus sockets (S-10). */
+export function endSessions(userId: string) {
+  if (!io) return;
+  io.to(userRoom(userId)).emit('session:ended');
+  io.in(userRoom(userId)).disconnectSockets(true);
 }
 
 /** Saca todas las pestañas de un usuario de la room de un tablero. */

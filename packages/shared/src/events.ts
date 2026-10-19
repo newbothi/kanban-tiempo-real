@@ -16,6 +16,8 @@ export interface ServerToClientEvents {
   'board:removed': (payload: { boardId: string }) => void;
   /** Cambió tu lista de tableros (p. ej. te invitaron a uno). */
   'boards:changed': () => void;
+  /** Tu sesión terminó (cerraste sesión en otra pestaña o expiró): vuelve al login. */
+  'session:ended': () => void;
 }
 
 /** Eventos que el cliente envía al servidor. */

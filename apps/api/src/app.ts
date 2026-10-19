@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import Fastify, { type FastifyError } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { SOCKET_ID_HEADER } from '@kanban/shared';
 import { prisma } from './db';
@@ -11,6 +12,7 @@ import { boardRoutes } from './routes/boards';
 import { cardRoutes } from './routes/cards';
 import type { ThrottleOptions } from './auth/throttle';
 import { MetricsService, type MetricsOptions } from './ml/metrics';
+import { allowedOrigins } from './origins';
 
 export interface BuildOptions {
   logger?: boolean;
@@ -48,19 +50,67 @@ const DEFAULT_WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url
  * La usan server.ts (desarrollo/producción) y los tests de integración.
  */
 export async function buildApp(opts: BuildOptions = {}) {
+  const production = process.env.NODE_ENV === 'production';
   const app = Fastify({
-    logger: opts.logger === false ? false : { level: process.env.LOG_LEVEL ?? 'info' },
+    logger:
+      opts.logger === false
+        ? false
+        : {
+            level: process.env.LOG_LEVEL ?? 'info',
+            // Nunca al log: cookies, cabeceras de autenticación ni contraseñas o sus hashes.
+            redact: {
+              paths: [
+                'req.headers.cookie',
+                'req.headers.authorization',
+                'res.headers["set-cookie"]',
+                '*.password',
+                '*.passwordHash',
+                '*.*.password',
+                '*.*.passwordHash',
+              ],
+              censor: '[oculto]',
+            },
+          },
     // Detrás de un proxy (Azure) para que el rate limit vea la IP real: se confía SOLO
     // en el último salto, el que agrega el proxy, no en lo que manda el navegador.
     trustProxy: trustHops(opts.trustProxy ?? defaultTrustProxy()),
   });
 
-  await app.register(cors, {
-    origin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
-    credentials: true, // permite enviar la cookie de sesión
-    methods: ['GET', 'POST', 'PATCH', 'DELETE'],
-    allowedHeaders: ['Content-Type', SOCKET_ID_HEADER],
+  // S-11: cabeceras de seguridad en todas las respuestas (API y web).
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'"],
+        imgSrc: ["'self'", 'data:'],
+        fontSrc: ["'self'"],
+        connectSrc: ["'self'"], // incluye el WebSocket del mismo origen
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+        formAction: ["'self'"],
+        frameAncestors: ["'none'"], // nadie puede meter la app en un iframe (clickjacking)
+        ...(production ? { upgradeInsecureRequests: [] } : {}),
+      },
+    },
+    // HSTS: el navegador recuerda usar solo HTTPS durante un año.
+    strictTransportSecurity: production ? { maxAge: 31_536_000, includeSubDomains: true } : false,
+    referrerPolicy: { policy: 'no-referrer' },
+    crossOriginEmbedderPolicy: false,
   });
+
+  // CORS solo si la web vive en otro origen (desarrollo con Vite). En producción todo
+  // comparte origen, así que no se habilita ninguno (S-15).
+  const origins = allowedOrigins();
+  if (origins.length) {
+    await app.register(cors, {
+      origin: origins,
+      credentials: true, // permite enviar la cookie de sesión
+      methods: ['GET', 'POST', 'PATCH', 'DELETE'],
+      allowedHeaders: ['Content-Type', SOCKET_ID_HEADER],
+    });
+  }
 
   // Errores inesperados: el detalle va al log, nunca al cliente
   // (los mensajes de Prisma incluyen rutas de archivos y partes de la consulta).
@@ -88,7 +138,8 @@ export async function buildApp(opts: BuildOptions = {}) {
   // así la cookie de sesión y el WebSocket funcionan sin configurar CORS.
   const webDist = opts.webDist ?? DEFAULT_WEB_DIST;
   if (existsSync(webDist)) {
-    await app.register(fastifyStatic, { root: webDist, wildcard: false });
+    // dotfiles: 'deny' → nunca se sirve un archivo oculto (.env, .git…) aunque aparezca en la carpeta.
+    await app.register(fastifyStatic, { root: webDist, wildcard: false, dotfiles: 'deny' });
     app.setNotFoundHandler((req, reply) => {
       if (req.method === 'GET' && !req.url.startsWith('/api/') && !req.url.startsWith('/socket.io')) {
         return reply.sendFile('index.html'); // SPA

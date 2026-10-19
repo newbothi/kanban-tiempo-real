@@ -173,3 +173,65 @@ describe('S-02: el rate limit no se salta falseando la IP', () => {
     }
   });
 });
+
+describe('S-10: cerrar sesión revoca el token', () => {
+  async function newUser(email: string, password = 'clave-revocable-1') {
+    const c = httpClient(server.base);
+    await c.req('POST', '/auth/register', { email, name: 'Usuario', password });
+    return { c, password };
+  }
+
+  it('una cookie copiada antes del logout deja de servir', async () => {
+    const { c } = await newUser('copiada@correo.cl');
+    const robada = c.cookie;
+    expect((await c.req('POST', '/auth/logout')).status).toBe(204);
+    const r = await httpClient(server.base).req('GET', '/auth/me', undefined, { cookie: robada });
+    expect(r.status).toBe(401);
+  });
+
+  it('cerrar sesión en un dispositivo la cierra en todos', async () => {
+    const { password } = await newUser('dos-equipos@correo.cl');
+    const pc = httpClient(server.base);
+    const celular = httpClient(server.base);
+    await pc.req('POST', '/auth/login', { email: 'dos-equipos@correo.cl', password });
+    await celular.req('POST', '/auth/login', { email: 'dos-equipos@correo.cl', password });
+    expect((await celular.req('GET', '/auth/me')).status).toBe(200);
+
+    await pc.req('POST', '/auth/logout');
+    expect((await celular.req('GET', '/auth/me')).status).toBe(401);
+
+    // Volver a entrar funciona normal.
+    const otra = httpClient(server.base);
+    expect((await otra.req('POST', '/auth/login', { email: 'dos-equipos@correo.cl', password })).status).toBe(200);
+    expect((await otra.req('GET', '/auth/me')).status).toBe(200);
+  });
+
+  it('la cuenta demo es compartida: el logout de un visitante no saca a los demás', async () => {
+    const { password } = await newUser('demo@kanban.cl', 'clave-demo-de-test');
+    const visitante1 = httpClient(server.base);
+    const visitante2 = httpClient(server.base);
+    await visitante1.req('POST', '/auth/login', { email: 'demo@kanban.cl', password });
+    await visitante2.req('POST', '/auth/login', { email: 'demo@kanban.cl', password });
+    await visitante1.req('POST', '/auth/logout');
+    expect((await visitante2.req('GET', '/auth/me')).status).toBe(200);
+  });
+
+  it('un token vencido no sirve aunque la firma sea válida', async () => {
+    const { c } = await newUser('vencido@correo.cl');
+    const me = await c.req('GET', '/auth/me');
+    const vencido = server.app.jwt.sign({ sub: me.data.id, sv: 0 }, { expiresIn: -10 });
+    const r = await httpClient(server.base).req('GET', '/auth/me', undefined, { cookie: `kanban_session=${vencido}` });
+    expect(r.status).toBe(401);
+  });
+});
+
+describe('S-17: política de contraseñas en el registro', () => {
+  it('rechaza contraseñas comunes', async () => {
+    const r = await httpClient(server.base).req('POST', '/auth/register', {
+      email: 'comun@correo.cl',
+      name: 'Común',
+      password: 'password123',
+    });
+    expect(r.status).toBe(400);
+  });
+});
