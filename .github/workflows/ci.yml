@@ -209,8 +209,8 @@ jobs:
   stack:
     name: Imágenes en marcha (smoke, ZAP y k6)
     # Las dos imágenes, tal como se publican, contra un SQL Server real. Si algo falla aquí,
-    # el job que publica (docker) no corre.
-    needs: [check, ml, dependencies, integration]
+    # el job que publica (docker) no corre. Corre en paralelo con los E2E.
+    needs: [check, ml, dependencies]
     runs-on: ubuntu-24.04
     services:
       mssql:

@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Browser, type Locator, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Locator, type Page } from '@playwright/test';
 
 export interface TestUser {
   name: string;
@@ -18,6 +18,23 @@ export function makeUser(name: string): TestUser {
 // y el test falla al final, con el detalle de lo que se bloqueó.
 export const cspViolations: string[] = [];
 export function watchCsp(page: Page) {
+  // El evento securitypolicyviolation trae qué directiva se violó y un trozo del contenido
+  // bloqueado (sample): con eso se sabe QUÉ lo causó, no solo que pasó.
+  void page.addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (e) => {
+      console.error(
+        'Content Security Policy (detalle): ' +
+          JSON.stringify({
+            directiva: e.violatedDirective,
+            bloqueado: e.blockedURI,
+            muestra: e.sample,
+            archivo: e.sourceFile,
+            linea: e.lineNumber,
+            elemento: e.target instanceof Element ? e.target.outerHTML.slice(0, 160) : String(e.target),
+          }),
+      );
+    });
+  });
   page.on('console', (msg) => {
     if (msg.type() === 'error' && /Content Security Policy/i.test(msg.text())) {
       const { url, lineNumber } = msg.location();
@@ -27,19 +44,24 @@ export function watchCsp(page: Page) {
 }
 export function checkCspAfterEach() {
   test.beforeEach(({ page }) => watchCsp(page));
-  test.afterEach(() => {
+  test.afterEach(async () => {
+    await Promise.all(extraContexts.splice(0).map((c) => c.close()));
     // Se vacía ANTES de comprobar: si no, un test que falla arrastraría sus violaciones al siguiente.
     const found = cspViolations.splice(0);
     expect(found, 'violaciones de CSP en el navegador').toEqual([]);
   });
 }
 
+const extraContexts: BrowserContext[] = [];
+
 /**
  * Cada usuario en su propio contexto = como si fueran dos navegadores distintos.
  * (Playwright Test le aplica al contexto las opciones del proyecto: baseURL, dispositivo…)
+ * Se cierran al terminar cada test, para que nada de un test siga corriendo en el siguiente.
  */
 export async function newUserPage(browser: Browser) {
   const context = await browser.newContext();
+  extraContexts.push(context);
   const page = await context.newPage();
   watchCsp(page);
   return page;
