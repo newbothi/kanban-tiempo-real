@@ -5,7 +5,7 @@ import './index.css'
 import App from './App.tsx'
 import { ApiError, setUnauthorizedHandler } from './api/client'
 import { setSessionUser } from './api/queries'
-import { disconnectSocket } from './realtime/socket'
+import { disconnectSocket, socket } from './realtime/socket'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { Toaster, showToast } from './ui/toast'
 
@@ -42,11 +42,15 @@ const queryClient = new QueryClient({
 })
 
 // Si cualquier request responde 401, la sesión venció: volvemos a la pantalla de login.
-setUnauthorizedHandler(() => {
+const endSession = (message: string) => {
   disconnectSocket()
   setSessionUser(queryClient, null)
-  showToast('Tu sesión expiró. Vuelve a iniciar sesión.')
-})
+  showToast(message)
+}
+setUnauthorizedHandler(() => endSession('Tu sesión expiró. Vuelve a iniciar sesión.'))
+
+// El servidor avisa cuando la sesión se cerró en otra pestaña o dispositivo (o venció).
+socket.on('session:ended', () => endSession('Se cerró tu sesión. Vuelve a iniciar sesión.'))
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

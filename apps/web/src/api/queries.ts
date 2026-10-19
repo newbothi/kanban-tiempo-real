@@ -86,7 +86,12 @@ export function useRegister() {
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: api.logout,
+    // Primero se corta el socket de ESTA pestaña: así no recibe el aviso "session:ended"
+    // que el servidor manda a las demás pestañas y dispositivos del usuario.
+    mutationFn: () => {
+      disconnectSocket();
+      return api.logout();
+    },
     onSettled: () => {
       disconnectSocket();
       setSessionUser(qc, null); // vuelve al login y no deja datos del usuario anterior

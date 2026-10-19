@@ -4,16 +4,19 @@ import cookie from '@fastify/cookie';
 import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import bcrypt from 'bcryptjs';
-import { SESSION_COOKIE, loginSchema, registerSchema, type UserDto } from '@kanban/shared';
+import { loginSchema, registerSchema, type UserDto } from '@kanban/shared';
 import { prisma } from '../db';
 import { clientIp, parseOr400 } from '../http';
 import { LoginThrottle, type ThrottleOptions } from './throttle';
+import { demoEmail, isSessionCurrent, sessionCookieName, type SessionClaims } from './session';
+import { getJwtSecret } from './secret';
+import { endSessions } from '../realtime';
 
 // Tipos del payload del JWT: `sub` es el id del usuario.
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string };
-    user: { sub: string };
+    payload: SessionClaims;
+    user: SessionClaims;
   }
 }
 
@@ -27,20 +30,12 @@ declare module 'fastify' {
 const SESSION_DAYS = 7;
 const BCRYPT_ROUNDS = 12;
 
-export function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET;
-  if (!secret || secret.length < 32) {
-    throw new Error(
-      'Falta JWT_SECRET en apps/api/.env (mínimo 32 caracteres). Revisa .env.example.',
-    );
-  }
-  return secret;
-}
+export { getJwtSecret };
 
 const userSelect = { id: true, email: true, name: true } as const;
 
 function setSessionCookie(reply: FastifyReply, token: string) {
-  reply.setCookie(SESSION_COOKIE, token, {
+  reply.setCookie(sessionCookieName(), token, {
     path: '/',
     httpOnly: true, // el JavaScript del navegador NO puede leerla (protege contra XSS)
     sameSite: 'lax', // no se envía en POSTs desde otros sitios (protege contra CSRF)
@@ -66,7 +61,7 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
   await app.register(cookie);
   await app.register(jwt, {
     secret: getJwtSecret(),
-    cookie: { cookieName: SESSION_COOKIE, signed: false },
+    cookie: { cookieName: sessionCookieName(), signed: false },
     sign: { expiresIn: `${SESSION_DAYS}d` },
   });
   // La clave del rate limit es la IP real del cliente, sin puerto (ver clientIp).
@@ -76,9 +71,13 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
   app.decorate('authenticate', async (req: FastifyRequest, reply: FastifyReply) => {
     try {
       await req.jwtVerify({ onlyCookie: true });
+      // Firma y vencimiento correctos no bastan: la sesión pudo cerrarse después (S-10).
+      if (await isSessionCurrent(req.user)) return;
     } catch {
-      return reply.code(401).send({ error: 'Unauthorized', message: 'Inicia sesión' });
+      // token ausente, alterado o vencido
     }
+    reply.clearCookie(sessionCookieName(), { path: '/' });
+    return reply.code(401).send({ error: 'Unauthorized', message: 'Inicia sesión' });
   });
 
   // Login y registro: máximo 10 intentos por minuto por IP (frena fuerza bruta).
@@ -104,7 +103,7 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
       select: userSelect,
     });
 
-    setSessionCookie(reply, await reply.jwtSign({ sub: user.id }));
+    setSessionCookie(reply, await reply.jwtSign({ sub: user.id, sv: 0 }));
     return reply.code(201).send(user);
   });
 
@@ -132,12 +131,28 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
     }
     throttle.success(input.email);
 
-    setSessionCookie(reply, await reply.jwtSign({ sub: user.id }));
+    setSessionCookie(reply, await reply.jwtSign({ sub: user.id, sv: user.sessionVersion }));
     return { id: user.id, email: user.email, name: user.name } satisfies UserDto;
   });
 
-  app.post('/api/auth/logout', async (_req, reply) => {
-    reply.clearCookie(SESSION_COOKIE, { path: '/' });
+  /**
+   * Cerrar sesión la cierra en TODOS los dispositivos (S-10): se incrementa la versión de
+   * sesión, así que los tokens anteriores dejan de valer (aunque alguien haya copiado la
+   * cookie), y se desconectan los WebSockets abiertos de ese usuario.
+   * Excepción: la cuenta demo es compartida; ahí solo se borra la cookie de este navegador.
+   */
+  app.post('/api/auth/logout', async (req, reply) => {
+    try {
+      await req.jwtVerify({ onlyCookie: true });
+      const user = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { email: true } });
+      if (user && user.email !== demoEmail() && (await isSessionCurrent(req.user))) {
+        await prisma.user.update({ where: { id: req.user.sub }, data: { sessionVersion: { increment: 1 } } });
+        endSessions(req.user.sub);
+      }
+    } catch {
+      // Sin sesión válida no hay nada que revocar: solo se borra la cookie.
+    }
+    reply.clearCookie(sessionCookieName(), { path: '/' });
     return reply.code(204).send();
   });
 
@@ -145,7 +160,7 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
     const user = await prisma.user.findUnique({ where: { id: req.user.sub }, select: userSelect });
     if (!user) {
       // El token es válido pero el usuario ya no existe.
-      reply.clearCookie(SESSION_COOKIE, { path: '/' });
+      reply.clearCookie(sessionCookieName(), { path: '/' });
       return reply.code(401).send({ error: 'Unauthorized', message: 'Inicia sesión' });
     }
     return user;

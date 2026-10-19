@@ -16,6 +16,8 @@ model User {
   email        String        @unique @db.NVarChar(254)
   name         String        @db.NVarChar(100)
   passwordHash String        @db.VarChar(100)
+  /// Se incrementa al cerrar sesión: invalida todos los JWT anteriores (S-10).
+  sessionVersion Int         @default(0)
   createdAt    DateTime      @default(now())
   memberships  BoardMember[]
 }

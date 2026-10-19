@@ -7,10 +7,26 @@ const users = {
   beto: { name: 'Beto', email: `beto-${run}@e2e.cl`, password: 'clave-beto-123' },
 };
 
+// S-11: la política CSP no debe romper nada. Cualquier recurso bloqueado se anota aquí
+// y el test falla al final, con el detalle de lo que se bloqueó.
+const cspViolations: string[] = [];
+function watchCsp(page: Page) {
+  page.on('console', (msg) => {
+    if (msg.type() === 'error' && /Content Security Policy/i.test(msg.text())) cspViolations.push(msg.text());
+  });
+}
+test.beforeEach(({ page }) => watchCsp(page));
+test.afterEach(() => {
+  expect(cspViolations, 'violaciones de CSP en el navegador').toEqual([]);
+  cspViolations.length = 0;
+});
+
 /** Cada usuario en su propio contexto = como si fueran dos navegadores distintos. */
 async function newUserPage(browser: Browser) {
   const context = await browser.newContext();
-  return context.newPage();
+  const page = await context.newPage();
+  watchCsp(page);
+  return page;
 }
 
 async function register(page: Page, u: (typeof users)['ana']) {

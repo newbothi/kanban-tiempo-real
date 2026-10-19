@@ -4,3 +4,4 @@ export * from './ordering';
 export * from './board';
 export * from './events';
 export * from './ml';
+export * from './passwords';

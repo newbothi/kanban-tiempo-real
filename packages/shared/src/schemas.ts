@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_PASSWORD_BYTES, isCommonPassword, passwordBytes } from './passwords';
 
 // Validación de entrada. La API la usa para validar el body;
 // el front la puede usar para validar formularios antes de enviar.
@@ -10,13 +11,17 @@ const email = z.string().trim().toLowerCase().max(254).pipe(z.email('Correo inv�
 export const registerSchema = z.object({
   email,
   name: z.string().trim().min(1, 'Ingresa tu nombre').max(100),
-  // bcrypt solo considera los primeros 72 bytes: limitamos para no dar una falsa sensación de seguridad.
-  password: z.string().min(8, 'Mínimo 8 caracteres').max(72, 'Máximo 72 caracteres'),
+  // bcrypt solo considera los primeros 72 BYTES: limitamos para no dar una falsa sensación de seguridad.
+  password: z
+    .string()
+    .min(8, 'Mínimo 8 caracteres')
+    .refine((p) => passwordBytes(p) <= MAX_PASSWORD_BYTES, 'Demasiado larga (máximo 72 bytes)')
+    .refine((p) => !isCommonPassword(p), 'Esa contraseña es demasiado común; elige otra'),
 });
 
 export const loginSchema = z.object({
   email,
-  password: z.string().min(1, 'Ingresa tu contraseña').max(72),
+  password: z.string().min(1, 'Ingresa tu contraseña').max(256),
 });
 
 export const addMemberSchema = z.object({ email });
