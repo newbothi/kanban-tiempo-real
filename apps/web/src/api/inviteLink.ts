@@ -6,7 +6,8 @@ const PARAM = 'invitacion';
 
 export function inviteTokenFromUrl(): string | null {
   const token = new URLSearchParams(location.search).get(PARAM);
-  return token && /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
+  if (token == "") return null;
+  return /^[A-Za-z0-9_-]{43}$/.test(token) ? token : null;
 }
 
 export function clearInviteToken() {
