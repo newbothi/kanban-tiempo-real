@@ -1,6 +1,7 @@
 """Reconstruye la historia de cada tarjeta a partir de los eventos."""
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -37,6 +38,8 @@ class Board:
     done_col: str
     middle_cols: set[str]
     cards: list[CardTimeline]
+    # Índice para wip_at: inicios y fines (ordenados) de las estadías en columnas intermedias.
+    _wip_index: tuple[list[float], list[float]] | None = field(default=None, repr=False)
 
 
 def build(req: AnalyzeRequest) -> Board:
@@ -68,12 +71,27 @@ def build(req: AnalyzeRequest) -> Board:
     return Board(first_col, done_col, middle, cards)
 
 
+def _wip_index(board: Board) -> tuple[list[float], list[float]]:
+    if board._wip_index is None:
+        starts: list[float] = []
+        ends: list[float] = []
+        for c in board.cards:
+            for st in c.stays:
+                if st.column_id in board.middle_cols:
+                    starts.append(st.start.timestamp())
+                    ends.append(st.end.timestamp() if st.end is not None else float("inf"))
+        board._wip_index = (sorted(starts), sorted(ends))
+    return board._wip_index
+
+
 def wip_at(board: Board, t: datetime) -> int:
-    """Tarjetas que estaban en columnas intermedias en el instante t."""
-    n = 0
-    for c in board.cards:
-        for s in c.stays:
-            if s.column_id in board.middle_cols and s.start <= t and (s.end is None or t < s.end):
-                n += 1
-                break
-    return n
+    """Tarjetas que estaban en columnas intermedias en el instante t.
+
+    Las estadías de una tarjeta no se solapan, así que basta contar las estadías
+    intermedias que empezaron (start <= t) menos las que ya terminaron (end <= t).
+    Con las listas ordenadas cada consulta es O(log N), en vez de recorrer todas
+    las tarjetas (antes el análisis completo era O(N²)).
+    """
+    starts, ends = _wip_index(board)
+    x = t.timestamp()
+    return bisect_right(starts, x) - bisect_right(ends, x)

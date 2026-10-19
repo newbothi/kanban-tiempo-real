@@ -13,10 +13,18 @@ import { notFound, parseOr400 } from '../http';
 import { requireBoardRole } from '../auth/access';
 import { notify } from '../realtime';
 import { MlUnavailableError, analyzeBoard } from '../ml/client';
+import {
+  BoardTooLargeError,
+  ML_LIMITS,
+  MetricsRateLimitError,
+  MetricsService,
+} from '../ml/metrics';
 
 const DEFAULT_COLUMNS = ['Por hacer', 'En progreso', 'Hecho'];
 
-export async function boardRoutes(app: FastifyInstance) {
+export async function boardRoutes(app: FastifyInstance, opts: { metrics?: MetricsService }) {
+  const metrics = opts.metrics ?? new MetricsService();
+
   // Todas las rutas de este plugin requieren sesión.
   app.addHook('preHandler', app.authenticate);
 
@@ -107,31 +115,30 @@ export async function boardRoutes(app: FastifyInstance) {
     const boardId = req.params.id;
     if (!(await requireBoardRole(reply, boardId, req.user.sub))) return;
 
-    const [columns, cards, events] = await Promise.all([
-      prisma.column.findMany({ where: { boardId }, select: { id: true, title: true, position: true } }),
-      prisma.card.findMany({
-        where: { column: { boardId } },
-        select: { id: true, title: true, columnId: true, createdAt: true },
-      }),
-      prisma.cardEvent.findMany({
-        where: { boardId },
-        orderBy: { at: 'asc' },
-        select: { cardId: true, type: true, fromColumnId: true, toColumnId: true, at: true },
-      }),
+    // "Versión" del tablero: cambia cada vez que se crea, mueve de columna o borra una tarjeta.
+    // Mientras no cambie, se reutiliza el último análisis (S-05).
+    const [stats, cardCount] = await Promise.all([
+      prisma.cardEvent.aggregate({ where: { boardId }, _count: { _all: true }, _max: { at: true } }),
+      prisma.card.count({ where: { column: { boardId } } }),
     ]);
+    const tooLarge = () =>
+      reply.code(422).send({
+        error: 'BoardTooLarge',
+        message: `El tablero es demasiado grande para analizarlo (máximo ${ML_LIMITS.cards} tarjetas)`,
+      });
+    if (cardCount > ML_LIMITS.cards || stats._count._all > ML_LIMITS.eventsScanned) return tooLarge();
+    const version = `${stats._count._all}:${stats._max.at?.getTime() ?? 0}:${cardCount}`;
 
     try {
-      return await analyzeBoard({
-        now: new Date().toISOString(),
-        columns,
-        cards: cards.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
-        events: events.map((e) => ({
-          ...e,
-          type: e.type as 'created' | 'moved' | 'deleted',
-          at: e.at.toISOString(),
-        })),
-      });
+      return await metrics.get(boardId, req.user.sub, version, () => computeMetrics(boardId));
     } catch (err) {
+      if (err instanceof BoardTooLargeError) return tooLarge();
+      if (err instanceof MetricsRateLimitError) {
+        return reply
+          .code(429)
+          .header('retry-after', String(err.retryAfterSec))
+          .send({ error: 'TooManyRequests', message: 'Demasiados cálculos seguidos; vuelve a intentar en un minuto' });
+      }
       if (!(err instanceof MlUnavailableError)) throw err;
       req.log.warn({ err }, 'servicio ML no disponible');
       return reply
@@ -222,4 +229,36 @@ export async function boardRoutes(app: FastifyInstance) {
       return reply.code(204).send();
     },
   );
+}
+
+/** Reúne los datos del tablero (ya autorizado) y pide el análisis al servicio ML. */
+async function computeMetrics(boardId: string) {
+  const [columns, cards, events] = await Promise.all([
+    prisma.column.findMany({ where: { boardId }, select: { id: true, title: true, position: true } }),
+    prisma.card.findMany({
+      where: { column: { boardId } },
+      select: { id: true, title: true, columnId: true, createdAt: true },
+    }),
+    prisma.cardEvent.findMany({
+      where: { boardId },
+      orderBy: { at: 'asc' },
+      select: { cardId: true, type: true, fromColumnId: true, toColumnId: true, at: true },
+      take: ML_LIMITS.eventsScanned,
+    }),
+  ]);
+  // Los eventos de tarjetas ya borradas no aportan al análisis: no se envían.
+  const alive = new Set(cards.map((c) => c.id));
+  const relevant = events.filter((e) => alive.has(e.cardId));
+  if (cards.length > ML_LIMITS.cards || relevant.length > ML_LIMITS.events) throw new BoardTooLargeError();
+
+  return analyzeBoard({
+    now: new Date().toISOString(),
+    columns,
+    cards: cards.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })),
+    events: relevant.map((e) => ({
+      ...e,
+      type: e.type as 'created' | 'moved' | 'deleted',
+      at: e.at.toISOString(),
+    })),
+  });
 }

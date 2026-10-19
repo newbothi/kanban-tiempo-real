@@ -5,9 +5,9 @@ A partir de estos modelos FastAPI genera el esquema OpenAPI, y desde ese esquema
 se generan los tipos de TypeScript que usa Node (packages/shared/src/ml-api.ts).
 """
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 from pydantic.alias_generators import to_camel
 
 
@@ -16,34 +16,52 @@ class Model(BaseModel):
 
 
 # ---------- Entrada ----------
+# Topes de tamaño: el análisis cuesta CPU y memoria, y el servicio corre en una
+# instancia pequeña. La API de Node aplica los mismos límites antes de llamar.
+MAX_CARDS = 5_000
+MAX_EVENTS = 40_000
+MAX_COLUMNS = 200
+MAX_SIMULATIONS = 20_000
+
+Id = Annotated[str, Field(min_length=1, max_length=64)]
+
 
 class ColumnIn(Model):
-    id: str
-    title: str
-    position: str = Field(description="Clave de orden (fractional indexing). La menor es la primera columna.")
+    id: Id
+    title: str = Field(max_length=200)
+    position: str = Field(max_length=255, description="Clave de orden (fractional indexing). La menor es la primera columna.")
 
 
 class CardIn(Model):
-    id: str
-    title: str
-    column_id: str
-    created_at: datetime
+    id: Id
+    title: str = Field(max_length=500)
+    column_id: Id
+    created_at: AwareDatetime
 
 
 class EventIn(Model):
-    card_id: str
+    card_id: Id
     type: Literal["created", "moved", "deleted"]
-    from_column_id: str | None = None
-    to_column_id: str | None = None
-    at: datetime
+    from_column_id: Id | None = None
+    to_column_id: Id | None = None
+    at: AwareDatetime
 
 
 class AnalyzeRequest(Model):
-    now: datetime
-    columns: list[ColumnIn]
-    cards: list[CardIn]
-    events: list[EventIn]
-    simulations: int = Field(default=10_000, ge=1_000, le=50_000)
+    # Fechas siempre con zona horaria: mezclar fechas con y sin zona hacía fallar las comparaciones (500).
+    now: AwareDatetime
+    columns: list[ColumnIn] = Field(max_length=MAX_COLUMNS)
+    cards: list[CardIn] = Field(max_length=MAX_CARDS)
+    events: list[EventIn] = Field(max_length=MAX_EVENTS)
+    simulations: int = Field(default=10_000, ge=1_000, le=MAX_SIMULATIONS)
+
+    @field_validator("now")
+    @classmethod
+    def now_razonable(cls, v: datetime) -> datetime:
+        # El pronóstico suma hasta 10 años a `now`: una fecha absurda haría desbordar el calendario.
+        if not 2000 <= v.year <= 2100:
+            raise ValueError("now debe estar entre los años 2000 y 2100")
+        return v
 
 
 # ---------- Salida ----------

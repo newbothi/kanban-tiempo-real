@@ -9,6 +9,8 @@ import { authPlugin } from './auth/plugin';
 import { attachRealtime } from './realtime';
 import { boardRoutes } from './routes/boards';
 import { cardRoutes } from './routes/cards';
+import type { ThrottleOptions } from './auth/throttle';
+import { MetricsService, type MetricsOptions } from './ml/metrics';
 
 export interface BuildOptions {
   logger?: boolean;
@@ -16,6 +18,27 @@ export interface BuildOptions {
   authRateLimit?: number;
   /** Carpeta con el front compilado (apps/web/dist). Si existe, la API también sirve la web. */
   webDist?: string;
+  /**
+   * Saltos de proxy en los que se confía para leer la IP del cliente (X-Forwarded-For).
+   * Por defecto: TRUST_PROXY_HOPS, o 1 en producción (el front-end de Azure) y ninguno en desarrollo.
+   * Nunca `true`: así se confiaría también en lo que escribe el cliente (S-02).
+   */
+  trustProxy?: number | false;
+  /** Freno por correo en el login (intentos libres y esperas). */
+  loginThrottle?: ThrottleOptions;
+  /** Caché y límites del cálculo de métricas. */
+  metrics?: MetricsOptions;
+}
+
+/** Confía solo en los últimos `hops` saltos (lo mismo que hace proxy-addr con un número). */
+function trustHops(hops: number | false) {
+  return hops === false ? false : (_address: string, hop: number) => hop < hops;
+}
+
+function defaultTrustProxy(): number | false {
+  const hops = process.env.TRUST_PROXY_HOPS;
+  if (hops !== undefined && hops !== '') return Number(hops) > 0 ? Number(hops) : false;
+  return process.env.NODE_ENV === 'production' ? 1 : false;
 }
 
 const DEFAULT_WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url));
@@ -27,8 +50,9 @@ const DEFAULT_WEB_DIST = fileURLToPath(new URL('../../web/dist', import.meta.url
 export async function buildApp(opts: BuildOptions = {}) {
   const app = Fastify({
     logger: opts.logger === false ? false : { level: process.env.LOG_LEVEL ?? 'info' },
-    // Detrás de un proxy (Render, Azure, Railway…) para que el rate limit vea la IP real.
-    trustProxy: process.env.NODE_ENV === 'production',
+    // Detrás de un proxy (Azure) para que el rate limit vea la IP real: se confía SOLO
+    // en el último salto, el que agrega el proxy, no en lo que manda el navegador.
+    trustProxy: trustHops(opts.trustProxy ?? defaultTrustProxy()),
   });
 
   await app.register(cors, {
@@ -55,9 +79,9 @@ export async function buildApp(opts: BuildOptions = {}) {
   });
 
   // Registro, login, logout, /me + el decorador app.authenticate
-  await app.register(authPlugin, { rateLimitMax: opts.authRateLimit });
+  await app.register(authPlugin, { rateLimitMax: opts.authRateLimit, throttle: opts.loginThrottle });
 
-  await app.register(boardRoutes, { prefix: '/api' });
+  await app.register(boardRoutes, { prefix: '/api', metrics: new MetricsService(opts.metrics) });
   await app.register(cardRoutes, { prefix: '/api' });
 
   // En producción, la misma API sirve el front compilado: un solo origen,

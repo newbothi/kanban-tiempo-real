@@ -49,34 +49,43 @@ export function attachRealtime(app: FastifyInstance) {
     void socket.join(userRoom(userId));
 
     socket.on('board:join', async (boardId, ack) => {
-      if (!z.uuid().safeParse(boardId).success) return ack({ ok: false, error: 'boardId inválido' });
-
-      // Un error aquí (p. ej. la BD caída) NO debe tumbar el proceso: lo capturamos.
+      // El cliente puede emitir sin callback (por error o a propósito): llamar a un `ack`
+      // inexistente lanzaba un TypeError que tumbaba el proceso entero (S-01).
+      const reply = typeof ack === 'function' ? ack : () => {};
+      // Todo el handler va protegido: un error aquí (BD caída, socket cerrado…) se registra
+      // y se responde, nunca se propaga.
       try {
+        if (!z.uuid().safeParse(boardId).success) return reply({ ok: false, error: 'boardId inválido' });
+
         // Solo los miembros pueden escuchar los eventos del tablero.
         if (!(await roleIn(boardId, userId))) {
-          return ack({ ok: false, error: 'Sin acceso a este tablero' });
+          return reply({ ok: false, error: 'Sin acceso a este tablero' });
         }
+
+        // Un socket mira un tablero a la vez: sale de los anteriores.
+        for (const room of socket.rooms) {
+          if (room.startsWith('board:') && room !== boardRoom(boardId)) {
+            await socket.leave(room);
+            void emitPresence(room.slice('board:'.length));
+          }
+        }
+        await socket.join(boardRoom(boardId));
+        reply({ ok: true });
+        void emitPresence(boardId);
       } catch (err) {
         app.log.error(err, 'board:join falló');
-        return ack({ ok: false, error: 'Error interno' });
+        reply({ ok: false, error: 'Error interno' });
       }
-
-      // Un socket mira un tablero a la vez: sale de los anteriores.
-      for (const room of socket.rooms) {
-        if (room.startsWith('board:') && room !== boardRoom(boardId)) {
-          await socket.leave(room);
-          void emitPresence(room.slice('board:'.length));
-        }
-      }
-      await socket.join(boardRoom(boardId));
-      ack({ ok: true });
-      void emitPresence(boardId);
     });
 
     socket.on('board:leave', async (boardId) => {
-      await socket.leave(boardRoom(boardId));
-      void emitPresence(boardId);
+      try {
+        if (!z.uuid().safeParse(boardId).success) return;
+        await socket.leave(boardRoom(boardId));
+        void emitPresence(boardId);
+      } catch (err) {
+        app.log.error(err, 'board:leave falló');
+      }
     });
 
     // 'disconnecting' se dispara ANTES de salir de las rooms, así sabemos en cuáles estaba.
@@ -91,10 +100,14 @@ export function attachRealtime(app: FastifyInstance) {
 
 async function emitPresence(boardId: string) {
   if (!io) return;
-  const sockets = await io.in(boardRoom(boardId)).fetchSockets();
-  // Contamos personas, no pestañas.
-  const count = new Set(sockets.map((s) => s.data.userId)).size;
-  io.to(boardRoom(boardId)).emit('board:presence', { boardId, count });
+  try {
+    const sockets = await io.in(boardRoom(boardId)).fetchSockets();
+    // Contamos personas, no pestañas.
+    const count = new Set(sockets.map((s) => s.data.userId)).size;
+    io.to(boardRoom(boardId)).emit('board:presence', { boardId, count });
+  } catch {
+    // La presencia es informativa: si falla, no se interrumpe nada.
+  }
 }
 
 /** Room del tablero, excluyendo al socket que hizo el request (ya tiene el cambio). */

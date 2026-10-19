@@ -12,6 +12,7 @@
     "db:generate": "prisma generate",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
     "start:test": "prisma migrate deploy && tsx src/server.ts",
     "db:simulate": "tsx --env-file=.env prisma/simulate-history.ts"
   },

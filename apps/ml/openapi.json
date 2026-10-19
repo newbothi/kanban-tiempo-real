@@ -3,7 +3,7 @@
   "info": {
     "title": "Kanban ML",
     "description": "Throughput, tendencia, pronóstico Monte Carlo, predicción de tiempos y tarjetas estancadas.",
-    "version": "1.0.0"
+    "version": "1.1.0"
   },
   "paths": {
     "/health": {
@@ -99,6 +99,7 @@
               "$ref": "#/components/schemas/ColumnIn"
             },
             "type": "array",
+            "maxItems": 200,
             "title": "Columns"
           },
           "cards": {
@@ -106,6 +107,7 @@
               "$ref": "#/components/schemas/CardIn"
             },
             "type": "array",
+            "maxItems": 5000,
             "title": "Cards"
           },
           "events": {
@@ -113,11 +115,12 @@
               "$ref": "#/components/schemas/EventIn"
             },
             "type": "array",
+            "maxItems": 40000,
             "title": "Events"
           },
           "simulations": {
             "type": "integer",
-            "maximum": 50000.0,
+            "maximum": 20000.0,
             "minimum": 1000.0,
             "title": "Simulations",
             "default": 10000
@@ -220,14 +223,19 @@
         "properties": {
           "id": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Id"
           },
           "title": {
             "type": "string",
+            "maxLength": 500,
             "title": "Title"
           },
           "columnId": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Columnid"
           },
           "createdAt": {
@@ -283,14 +291,18 @@
         "properties": {
           "id": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Id"
           },
           "title": {
             "type": "string",
+            "maxLength": 200,
             "title": "Title"
           },
           "position": {
             "type": "string",
+            "maxLength": 255,
             "title": "Position",
             "description": "Clave de orden (fractional indexing). La menor es la primera columna."
           }
@@ -361,6 +373,8 @@
         "properties": {
           "cardId": {
             "type": "string",
+            "maxLength": 64,
+            "minLength": 1,
             "title": "Cardid"
           },
           "type": {
@@ -375,7 +389,9 @@
           "fromColumnId": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
               },
               {
                 "type": "null"
@@ -386,7 +402,9 @@
           "toColumnId": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 1
               },
               {
                 "type": "null"
