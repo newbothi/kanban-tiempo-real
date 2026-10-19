@@ -58,7 +58,7 @@ describe('S-20: posiciones', () => {
     const created = await Promise.all(
       Array.from({ length: 20 }, (_, i) => ana.req('POST', '/cards', { columnId: b.col, title: `P${i}` })),
     );
-    expect(created.every((r) => r.status === 201)).toBe(true);
+    expect(created.map((r) => r.status)).toEqual(Array(20).fill(201));
     // Mover al medio funciona aunque la carrera haya dejado claves repetidas.
     const r = await ana.req('POST', `/cards/${created[0]!.data.id}/move`, { columnId: b.col, index: 10 });
     expect(r.status).toBe(200);

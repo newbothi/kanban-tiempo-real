@@ -20,6 +20,26 @@ const cardSelect = { id: true, columnId: true, title: true, position: true } as 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 /**
+ * Con muchas creaciones o movimientos simultáneos en la misma columna, SQL Server puede
+ * abortar una de dos transacciones que se bloquean mutuamente (deadlock, error 1205;
+ * Prisma: P2034), o una transacción puede no conseguir conexión a tiempo (P2028).
+ * Se reintenta unas veces en vez de responder 500.
+ */
+async function withRetry<T>(run: () => Promise<T>, attempts = 4): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await run();
+    } catch (err) {
+      const e = err as { code?: string; message?: string };
+      const conflict =
+        e.code === 'P2034' || e.code === 'P2028' || /deadlock|1205|Unable to start a transaction/i.test(e.message ?? '');
+      if (!conflict || i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, 20 * i + Math.random() * 30));
+    }
+  }
+}
+
+/**
  * S-20: vuelve a repartir las posiciones de una columna con claves cortas, en el orden
  * actual (empates por id). Se usa cuando una clave se alargó demasiado o cuando dos
  * tarjetas quedaron con la misma posición (p. ej. por dos creaciones simultáneas).
@@ -36,13 +56,20 @@ async function rebalanceColumn(tx: Tx, columnId: string) {
   }
 }
 
-/** Clave para el movimiento; si no se puede calcular bien, reordena la columna y reintenta. */
+/**
+ * Clave para el movimiento. Si alguna clave de la columna ya está demasiado larga, si la
+ * nueva lo estaría, o si no se puede calcular (claves repetidas), reordena la columna y
+ * vuelve a calcular.
+ */
 async function positionWithRebalance(tx: Tx, columnId: string, cardId: string, index: number) {
   const load = () =>
     tx.card.findMany({ where: { columnId }, select: { id: true, columnId: true, position: true } });
   try {
-    const position = positionForMove(await load(), cardId, columnId, index);
-    if (position.length <= MAX_POSITION_LENGTH) return { position, rebalanced: false };
+    const siblings = await load();
+    if (!siblings.some((c) => c.position.length > MAX_POSITION_LENGTH)) {
+      const position = positionForMove(siblings, cardId, columnId, index);
+      if (position.length <= MAX_POSITION_LENGTH) return { position, rebalanced: false };
+    }
   } catch {
     // claves duplicadas: generateKeyBetween no puede ubicar algo entre dos iguales
   }
@@ -73,7 +100,7 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
     }
 
     let rebalanced = false;
-    const card = await prisma.$transaction(async (tx) => {
+    const card = await withRetry(() => prisma.$transaction(async (tx: Tx) => {
       const lastKey = async () =>
         (
           await tx.card.findFirst({
@@ -101,7 +128,7 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
         data: { boardId: boardId!, cardId: created.id, type: 'created', toColumnId: input.columnId },
       });
       return created;
-    });
+    }, { maxWait: 10_000 }));
 
     notify.cardCreated(req, boardId!, card);
     if (rebalanced) notify.boardReordered(boardId!);
@@ -137,7 +164,7 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
     if (!(await requireBoardRole(reply, boardId, req.user.sub))) return;
 
     let rebalanced = false;
-    const result = await prisma.$transaction(
+    const result = await withRetry(() => prisma.$transaction(
       async (tx) => {
       // La columna destino debe pertenecer al MISMO tablero
       // (si no, alguien podría mover tarjetas a un tablero ajeno).
@@ -172,8 +199,8 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
       return updated;
       },
       // Reordenar una columna grande toma más que los 5 s por defecto.
-      { timeout: 20_000 },
-    );
+      { timeout: 20_000, maxWait: 10_000 },
+    ));
 
     if (!result) return notFound(reply, 'La columna');
     notify.cardUpdated(req, boardId, result);
