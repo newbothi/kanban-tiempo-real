@@ -25,7 +25,7 @@ env:
 jobs:
   check:
     name: Lint, tipos, tests unitarios y build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -47,7 +47,7 @@ jobs:
 
   ml:
     name: Servicio ML (Python)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: apps/ml
@@ -80,7 +80,7 @@ jobs:
 
   dependencies:
     name: Dependencias y secretos
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -108,7 +108,7 @@ jobs:
 
   integration:
     name: API + E2E contra SQL Server
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     services:
       mssql:
         image: mcr.microsoft.com/mssql/server:2022-latest
@@ -176,7 +176,7 @@ jobs:
     name: Imágenes Docker (Trivy, SBOM y publicación)
     # En los PR: construye y escanea. En main, y solo si TODO lo anterior pasó: además publica.
     needs: [check, ml, dependencies, integration]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write # publicar en GHCR (solo se usa en main)
@@ -266,13 +266,3 @@ jobs:
         if: env.PUBLISH == 'true' && matrix.name == 'api' && env.AZURE_WEBHOOK != ''
         run: curl -fsS -X POST "$AZURE_WEBHOOK" -o /dev/null
 
-  # TEMPORAL: obtener los digests de las imágenes base para fijarlos en los Dockerfile.
-  digests:
-    name: Digests de imágenes base (temporal)
-    runs-on: ubuntu-latest
-    steps:
-      - run: |
-          for i in node:24-bookworm-slim python:3.13-slim; do
-            d=$(docker buildx imagetools inspect "$i" --format '{{json .Manifest}}' | jq -r .digest)
-            echo "::notice title=digest $i::$d"
-          done

@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
+# S-23: imagen base fijada por digest (Dependabot la actualiza).
 # ---------- 1) Build: instala todo, genera Prisma y compila el front ----------
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS build
 WORKDIR /app
 
 # Primero solo los package.json: Docker reutiliza esta capa si las dependencias no cambian.
@@ -18,7 +19,7 @@ RUN DATABASE_URL="sqlserver://build:1433;database=build" npm run db:generate -w 
  && npm prune --omit=dev
 
 # ---------- 2) Runtime: solo lo necesario para ejecutar ----------
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
 ENV NODE_ENV=production \
     PORT=3000
 WORKDIR /app

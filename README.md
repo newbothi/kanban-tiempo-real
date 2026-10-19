@@ -39,6 +39,7 @@ Usuario demo: `demo@kanban.cl` / `demo1234`. También puedes crear tu cuenta y a
 | Análisis (ML) | Python 3.13, FastAPI, scikit-learn, SciPy, NumPy |
 | Seguridad | JWT en cookie httpOnly, bcrypt, rate limiting |
 | Tests | Vitest (unitarios e integración), pytest, Playwright (E2E con dos navegadores) |
+| Calidad | ESLint, Ruff, mypy, cobertura mínima, CodeQL, Bandit, gitleaks, npm audit, pip-audit, Trivy |
 | CI | GitHub Actions con SQL Server como servicio |
 
 ## Arquitectura
@@ -141,18 +142,36 @@ Los tests de Python verifican que los modelos **recuperan** relaciones conocidas
 
   A quien no es miembro se le responde **404 y no 403**, para no revelar que el tablero existe. También se valida que una tarjeta no pueda moverse a una columna de **otro** tablero.
 - **Tiempo real:** el handshake de Socket.IO exige una sesión válida, y `board:join` exige ser miembro. Al quitar a alguien, se sacan de la room **todas sus pestañas abiertas**.
-- **Dependencias:** `npm audit` reporta 4 avisos moderados en la cadena `mssql → tedious → sprintf-js`, sin versión corregida. `tedious` solo llama a `sprintf` con formatos fijos, así que no es explotable desde las entradas de la app. El resto se corrigió con `overrides`.
+- **Dependencias:** `npm audit` y `pip-audit` quedan en cero y el CI falla si aparece cualquier vulnerabilidad conocida. Las dependencias de Python están fijadas con hash, y las actions de GitHub y las imágenes base, por SHA o digest. Dependabot propone las actualizaciones cada semana.
 
 ## Tests
 
 | Suite | Qué cubre | Comando |
 |---|---|---|
-| Unitarios (27) | Orden, movimientos, schemas | `npm run test:unit` |
-| Integración (42) | Auth, permisos, eventos del socket, historial y endpoint de métricas, contra SQL Server real | `npm run test:api` |
-| Python (23) | Cada análisis contra datos con propiedades conocidas, y la API de FastAPI | `python -m pytest` (en `apps/ml`) |
-| E2E (2) | Dos usuarios en navegadores separados: invitar, arrastrar, sincronizar, ver métricas y expulsar | `npm run test:e2e` |
+| Unitarios | Orden, movimientos, schemas, límites y validación de respuestas del ML | `npm run test:unit` |
+| Integración | Auth, permisos, invitaciones, eventos del socket, historial y métricas, contra SQL Server real | `npm run test:api` |
+| Python | Cada análisis contra datos con propiedades conocidas, la API de FastAPI y los hallazgos de seguridad | `python -m pytest` (en `apps/ml`) |
+| E2E | Dos usuarios en navegadores separados: invitar, arrastrar, sincronizar, ver métricas y expulsar | `npm run test:e2e` |
 
 Los tests de integración comprueban, por ejemplo, que un usuario sin permisos no pueda **mover, renombrar ni borrar** tarjetas ajenas, que no pueda escuchar eventos de un tablero ajeno, y que deje de recibirlos apenas lo quitan.
+
+### Barreras del CI
+
+Un PR no se puede fusionar si falla cualquiera de estas revisiones:
+
+| Revisión | Herramienta | Falla si… |
+|---|---|---|
+| Lint | ESLint con typescript-eslint (estricto en el front) · Ruff | hay cualquier error |
+| Tipos | `tsc` · mypy en modo estricto | hay cualquier error |
+| Cobertura | Vitest (v8) · pytest-cov | la API, el paquete compartido o el servicio ML bajan del 80 % |
+| Análisis estático | CodeQL (consultas `security-extended`) · Bandit | encuentra una vulnerabilidad |
+| Dependencias | `npm audit` · `pip-audit` | hay una vulnerabilidad conocida |
+| Secretos | gitleaks, sobre todos los commits del PR | aparece una clave o contraseña |
+| Imágenes | Trivy | hay una vulnerabilidad HIGH o CRITICAL con arreglo disponible |
+
+Además, cada imagen publicada lleva su SBOM (CycloneDX) como artefacto del CI y una procedencia (*provenance*) firmada por GitHub.
+
+En local: `npm run lint`, `npm run typecheck`, `npm run test:coverage -w @kanban/shared`, y en `apps/ml`: `ruff check .`, `mypy`, `pytest --cov`.
 
 ## Cómo correrlo
 
@@ -202,8 +221,10 @@ Servicio de análisis (Python), desde la raíz:
 cd apps/ml
 python -m venv .venv
 .venv\Scripts\activate          # en macOS/Linux: source .venv/bin/activate
-pip install -r requirements-dev.txt
+pip install -r requirements.in -r requirements-dev.in
 ```
+
+Los `requirements*.txt` tienen las versiones exactas con hash para Linux (los usan el CI y la imagen Docker). Para cambiar una dependencia se edita el `.in` y se regeneran con `pip-compile --generate-hashes --allow-unsafe --strip-extras` (en Linux o WSL).
 
 ### 3. Desarrollo
 
