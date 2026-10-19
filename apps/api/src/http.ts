@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type { z } from 'zod';
+import { createHash, randomBytes } from 'node:crypto';
 import type { SlidingWindowLimiter } from './limits';
 
 /** Valida con Zod; si falla responde 400 y devuelve null. */
@@ -65,3 +66,13 @@ export function limitWrites(limiter: SlidingWindowLimiter) {
     }
   };
 }
+
+/** URL pública de la app, para los enlaces de los correos. */
+export function publicUrl(req: FastifyRequest): string {
+  return (process.env.PUBLIC_URL ?? `${req.protocol}://${req.host}`).replace(/\/$/, '');
+}
+
+/** Token aleatorio para enlaces de un solo uso. En la base solo se guarda `hashToken(token)`. */
+export const newToken = () => randomBytes(32).toString('base64url');
+export const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
+export const TOKEN_FORMAT = /^[A-Za-z0-9_-]{43}$/;

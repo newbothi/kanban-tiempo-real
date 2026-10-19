@@ -37,6 +37,14 @@ export interface InviteDto {
   createdAt: string;
 }
 
+/** Lo que muestra el enlace del correo de invitación antes de iniciar sesión. */
+export interface InvitePreviewDto {
+  boardName: string;
+  invitedBy: string;
+  /** Correo invitado: hay que entrar (o registrarse) con este. */
+  email: string;
+}
+
 /** Invitación enviada a un tablero mío, todavía sin respuesta. */
 export interface PendingInviteDto {
   id: string;

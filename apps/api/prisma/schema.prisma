@@ -48,11 +48,15 @@ model BoardInvite {
   boardId     String   @db.VarChar(36)
   email       String   @db.NVarChar(254)
   invitedById String   @db.VarChar(36)
+  /// SHA-256 del token del enlace enviado por correo (el token en claro solo viaja en el correo).
+  tokenHash      String?   @db.VarChar(64)
+  tokenExpiresAt DateTime?
   createdAt   DateTime @default(now())
   board       Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
 
   @@unique([boardId, email])
   @@index([email])
+  @@index([tokenHash])
 }
 
 /// Quién puede ver un tablero y con qué rol.

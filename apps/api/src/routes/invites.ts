@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
-import type { InviteDto } from '@kanban/shared';
+import { claimInviteSchema, type InviteDto, type InvitePreviewDto } from '@kanban/shared';
 import { prisma } from '../db';
-import { limitWrites, notFound, rejectMalformedIds } from '../http';
+import { TOKEN_FORMAT, hashToken, limitWrites, notFound, parseOr400, rejectMalformedIds } from '../http';
 import { notify } from '../realtime';
 import { rejectIfDemo } from '../demo/demo';
 import type { Mailer } from '../mail';
@@ -47,6 +47,31 @@ export async function inviteRoutes(app: FastifyInstance, opts: Pick<RouteOptions
     );
   });
 
+  /**
+   * Abrir el enlace del correo con sesión iniciada. Si la sesión es del correo invitado,
+   * eso prueba que la persona controla ese correo: la cuenta queda verificada y la
+   * invitación aparece en su lista para aceptarla. Con otra cuenta no sirve.
+   */
+  app.post('/invites/claim', async (req, reply) => {
+    const input = parseOr400(claimInviteSchema, req.body, reply);
+    if (!input) return;
+    const invite = await findByLink(input.token);
+    if (!invite) return reply.code(404).send({ error: 'NotFound', message: 'La invitación no existe, ya se respondió o venció' });
+
+    const user = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { email: true, emailVerifiedAt: true } });
+    if (!user || user.email !== invite.email) {
+      return reply.code(403).send({
+        error: 'WrongAccount',
+        message: `Esta invitación es para ${invite.email}. Cierra sesión y entra (o crea tu cuenta) con ese correo.`,
+      });
+    }
+    if (!user.emailVerifiedAt) {
+      await prisma.user.update({ where: { id: req.user.sub }, data: { emailVerifiedAt: new Date() } });
+    }
+    notify.invitesChanged(req.user.sub);
+    return { inviteId: invite.id, boardId: invite.boardId };
+  });
+
   app.post<{ Params: { id: string } }>('/invites/:id/accept', async (req, reply) => {
     const user = await me(req.user.sub);
     const invite = await prisma.boardInvite.findUnique({ where: { id: req.params.id } });
@@ -80,4 +105,34 @@ export async function inviteRoutes(app: FastifyInstance, opts: Pick<RouteOptions
     notify.invitesChanged(req.user.sub);
     return reply.code(204).send();
   });
+}
+
+/** Invitación vigente que corresponde al token de un enlace. */
+async function findByLink(token: string) {
+  if (!TOKEN_FORMAT.test(token)) return null;
+  return prisma.boardInvite.findFirst({
+    where: { tokenHash: hashToken(token), tokenExpiresAt: { gt: new Date() } },
+    select: { id: true, boardId: true, email: true, invitedById: true, board: { select: { name: true } } },
+  });
+}
+
+/**
+ * Vista previa pública del enlace: quien lo tiene recibió el correo, así que puede ver
+ * quién lo invita, a qué tablero y con qué correo debe entrar. Con límite por IP.
+ */
+export async function inviteLinkRoutes(app: FastifyInstance) {
+  app.get<{ Querystring: { token?: string } }>(
+    '/invites/preview',
+    { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const invite = await findByLink(req.query.token ?? '');
+      if (!invite) return reply.code(404).send({ error: 'NotFound', message: 'La invitación no existe, ya se respondió o venció' });
+      const inviter = await prisma.user.findUnique({ where: { id: invite.invitedById }, select: { name: true } });
+      return {
+        boardName: invite.board.name,
+        invitedBy: inviter?.name ?? 'Alguien',
+        email: invite.email,
+      } satisfies InvitePreviewDto;
+    },
+  );
 }

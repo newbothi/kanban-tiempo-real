@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { generateNKeysBetween } from 'fractional-indexing';
 import {
   addMemberSchema,
@@ -12,7 +12,8 @@ import {
 import { rejectIfDemo } from '../demo/demo';
 import { SlidingWindowLimiter } from '../limits';
 import { prisma } from '../db';
-import { limitWrites, notFound, parseOr400, rejectMalformedIds } from '../http';
+import { hashToken, limitWrites, newToken, notFound, parseOr400, publicUrl, rejectMalformedIds } from '../http';
+import { invitationEmail, type Mailer } from '../mail';
 import type { resolveLimits } from '../limits';
 import { requireBoardRole } from '../auth/access';
 import { notify } from '../realtime';
@@ -33,8 +34,14 @@ export interface RouteOptions {
 
 const MAX_PENDING_INVITES = 50;
 const INVITE_ACCEPTED_MESSAGE = 'Si el correo corresponde a una cuenta, la persona verá la invitación al entrar.';
+const INVITE_EMAIL_MESSAGE = 'Invitación enviada. Le llegará un correo con un enlace para verla y aceptarla.';
 
-export async function boardRoutes(app: FastifyInstance, opts: RouteOptions & { metrics?: MetricsService }) {
+const INVITE_LINK_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+export async function boardRoutes(
+  app: FastifyInstance,
+  opts: RouteOptions & { metrics?: MetricsService; mailer: Mailer },
+) {
   const metrics = opts.metrics ?? new MetricsService();
   const invitesSent = new SlidingWindowLimiter(20, 60 * 60 * 1000); // invitaciones por dueño y hora
   app.addHook('preValidation', rejectMalformedIds);
@@ -230,11 +237,35 @@ export async function boardRoutes(app: FastifyInstance, opts: RouteOptions & { m
         // Ya estaba invitada (índice único boardId + email): no es un error para quien invita.
         if ((err as { code?: string }).code !== 'P2002') throw err;
       }
+      await emailInvitation(req, boardId, input.email);
       if (invitee) notify.invitesChanged(invitee.id);
       notify.pendingInvitesChanged(boardId);
     }
-    return reply.code(202).send({ message: INVITE_ACCEPTED_MESSAGE });
+    // Igual exista o no la cuenta; solo cambia según si hay envío de correos configurado.
+    return reply.code(202).send({ message: opts.mailer.enabled ? INVITE_EMAIL_MESSAGE : INVITE_ACCEPTED_MESSAGE });
   });
+
+  /**
+   * Manda (o vuelve a mandar) el correo con el enlace de la invitación. El enlace lleva un
+   * token aleatorio nuevo; en la base queda solo su hash. Si el correo falla, la invitación
+   * sigue valiendo: la persona la ve igual al entrar a la app.
+   */
+  async function emailInvitation(req: FastifyRequest, boardId: string, email: string) {
+    if (!opts.mailer.enabled) return;
+    const token = newToken();
+    const invite = await prisma.boardInvite.update({
+      where: { boardId_email: { boardId, email } },
+      data: { tokenHash: hashToken(token), tokenExpiresAt: new Date(Date.now() + INVITE_LINK_TTL_MS) },
+      select: { board: { select: { name: true } } },
+    });
+    const inviter = await prisma.user.findUnique({ where: { id: req.user.sub }, select: { name: true } });
+    const link = `${publicUrl(req)}/?invitacion=${token}`;
+    try {
+      await opts.mailer.send({ to: email, ...invitationEmail(inviter?.name ?? 'Alguien', invite.board.name, link) });
+    } catch (err) {
+      req.log.error({ err }, 'no se pudo enviar el correo de invitación');
+    }
+  }
 
   // Invitaciones sin responder de un tablero (solo el dueño las ve).
   app.get<{ Params: { id: string } }>('/boards/:id/invites', async (req, reply) => {

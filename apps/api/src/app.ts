@@ -10,7 +10,7 @@ import { authPlugin } from './auth/plugin';
 import { attachRealtime } from './realtime';
 import { boardRoutes } from './routes/boards';
 import { cardRoutes } from './routes/cards';
-import { inviteRoutes } from './routes/invites';
+import { inviteLinkRoutes, inviteRoutes } from './routes/invites';
 import { mailerFromEnv, type Mailer } from './mail';
 import type { ThrottleOptions } from './auth/throttle';
 import { MetricsService, type MetricsOptions } from './ml/metrics';
@@ -143,9 +143,16 @@ export async function buildApp(opts: BuildOptions = {}) {
 
   const limits = resolveLimits(opts.limits);
   const writes = new SlidingWindowLimiter(limits.writesPerMinute, 60_000);
-  await app.register(boardRoutes, { prefix: '/api', metrics: new MetricsService(opts.metrics), limits, writes });
+  await app.register(boardRoutes, {
+    prefix: '/api',
+    metrics: new MetricsService(opts.metrics),
+    limits,
+    writes,
+    mailer,
+  });
   await app.register(cardRoutes, { prefix: '/api', limits, writes });
   await app.register(inviteRoutes, { prefix: '/api', writes, mailer });
+  await app.register(inviteLinkRoutes, { prefix: '/api' });
 
   // En producción, la misma API sirve el front compilado: un solo origen,
   // así la cookie de sesión y el WebSocket funcionan sin configurar CORS.

@@ -17,6 +17,7 @@
     "db:simulate": "tsx --env-file=.env prisma/simulate-history.ts"
   },
   "dependencies": {
+    "@azure/communication-email": "^1.1.0",
     "@fastify/cookie": "^11.1.2",
     "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.2.0",

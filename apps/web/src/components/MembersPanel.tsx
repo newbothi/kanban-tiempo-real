@@ -112,8 +112,11 @@ export function MembersPanel({ boardId, myRole, me, onLeft }: Props) {
             </button>
           </div>
           {error && <p className="status status--error">{error}</p>}
-          {sent && <p className="status" role="status">{sent}</p>}
-          <p className="hint">La persona verá la invitación al entrar y podrá aceptarla o rechazarla.</p>
+          {sent ? (
+            <p className="status" role="status">{sent}</p>
+          ) : (
+            <p className="hint">Le llegará un aviso por correo y podrá aceptar o rechazar la invitación.</p>
+          )}
         </form>
       ) : (
         <button className="link danger" onClick={leave} disabled={remove.isPending}>
