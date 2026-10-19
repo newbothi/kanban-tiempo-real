@@ -23,9 +23,19 @@ export function positionForMove(
   return keyAtIndex(target, index);
 }
 
-/** Aplica un movimiento sobre un tablero sin mutarlo (útil para el estado optimista). */
+/**
+ * Aplica un movimiento sobre un tablero sin mutarlo (útil para el estado optimista).
+ * Si las posiciones locales están en un estado que no permite calcular una clave
+ * (p. ej. dos tarjetas con la misma), deja el tablero igual: la respuesta del
+ * servidor, que reordena la columna, trae el resultado correcto.
+ */
 export function applyMove(board: BoardDto, cardId: string, columnId: string, index: number): BoardDto {
-  const position = positionForMove(board.cards, cardId, columnId, index);
+  let position: string;
+  try {
+    position = positionForMove(board.cards, cardId, columnId, index);
+  } catch {
+    return board;
+  }
   return {
     ...board,
     cards: board.cards.map((c) => (c.id === cardId ? { ...c, columnId, position } : c)),

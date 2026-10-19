@@ -2,6 +2,7 @@ import type { AddressInfo } from 'node:net';
 import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { registerUser, resetDb, startServer } from './helpers';
+import { fakeAnalysis } from './ml-fixture';
 
 // S-05: /metrics no debe poder usarse para agotar la CPU del servicio ML.
 let calls = 0;
@@ -10,7 +11,7 @@ const fakeMl = Fastify();
 fakeMl.post('/analyze', async () => {
   calls++;
   if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
-  return { insights: [`cálculo ${calls}`] };
+  return fakeAnalysis([`cálculo ${calls}`]);
 });
 
 let server: Awaited<ReturnType<typeof startServer>>;

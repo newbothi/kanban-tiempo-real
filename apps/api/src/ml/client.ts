@@ -1,8 +1,11 @@
 import type { MlAnalysis, MlAnalyzeRequest } from '@kanban/shared';
+import { mlAnalysisSchema } from './response';
 
 export class MlUnavailableError extends Error {}
 
 const TIMEOUT_MS = 20_000;
+/** Una respuesta real pesa decenas de KB; más que esto es un error o un abuso (S-19). */
+const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 
 /**
  * Llama al servicio de análisis (Python). Node es el único que habla con él:
@@ -25,7 +28,24 @@ export async function analyzeBoard(payload: MlAnalyzeRequest): Promise<MlAnalysi
     throw new MlUnavailableError(`No se pudo contactar al servicio ML: ${(err as Error).message}`);
   }
   if (!res.ok) {
-    throw new MlUnavailableError(`El servicio ML respondió ${res.status}: ${await res.text()}`);
+    const detail = (await res.text()).slice(0, 500);
+    throw new MlUnavailableError(`El servicio ML respondió ${res.status}: ${detail}`);
   }
-  return (await res.json()) as MlAnalysis;
+
+  const declared = Number(res.headers.get('content-length') ?? 0);
+  if (declared > MAX_RESPONSE_BYTES) throw new MlUnavailableError('Respuesta del servicio ML demasiado grande');
+  const body = await res.text();
+  if (body.length > MAX_RESPONSE_BYTES) throw new MlUnavailableError('Respuesta del servicio ML demasiado grande');
+
+  let json: unknown;
+  try {
+    json = JSON.parse(body);
+  } catch {
+    throw new MlUnavailableError('El servicio ML respondió algo que no es JSON');
+  }
+  const parsed = mlAnalysisSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new MlUnavailableError(`Respuesta del servicio ML con formato inesperado: ${parsed.error.issues[0]?.message}`);
+  }
+  return parsed.data as MlAnalysis;
 }

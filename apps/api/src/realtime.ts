@@ -12,6 +12,7 @@ import {
 import { roleIn } from './auth/access';
 import { isSessionCurrent, sessionCookieName, type SessionClaims } from './auth/session';
 import { allowedOrigins } from './origins';
+import { SlidingWindowLimiter } from './limits';
 
 interface SocketData {
   userId: string;
@@ -24,7 +25,10 @@ type IO = Server<ClientToServerEvents, ServerToClientEvents, Record<string, neve
 let io: IO | null = null;
 
 /** Conecta Socket.IO al mismo servidor HTTP de Fastify (mismo puerto 3000). */
-export function attachRealtime(app: FastifyInstance) {
+export function attachRealtime(app: FastifyInstance, opts: { socketEventsPer10s?: number } = {}) {
+  // S-16: cada conexión puede enviar pocos eventos por segundo; los que sobran se descartan.
+  const socketEvents = new SlidingWindowLimiter(opts.socketEventsPer10s ?? 30, 10_000);
+
   const origins = allowedOrigins();
   io = new Server(app.server, {
     cors: origins.length ? { origin: origins, credentials: true } : undefined,
@@ -74,6 +78,15 @@ export function attachRealtime(app: FastifyInstance) {
     const userId = socket.data.userId;
     app.log.info({ socketId: socket.id, userId }, 'socket conectado');
 
+    socket.use((_packet, next) => {
+      if (socketEvents.take(socket.id) > 0) return next(new Error('Demasiados eventos; espera un momento'));
+      next();
+    });
+    socket.on('error', () => {
+      // El error del límite ya se envió al cliente; no hay nada más que hacer aquí.
+    });
+    socket.once('disconnect', () => socketEvents.forget(socket.id));
+
     // Room personal: para avisarle a este usuario aunque no esté mirando un tablero.
     void socket.join(userRoom(userId));
 
@@ -99,6 +112,11 @@ export function attachRealtime(app: FastifyInstance) {
           }
         }
         await socket.join(boardRoom(boardId));
+        // S-21: si lo expulsaron justo entre la comprobación y el join, no debe quedarse escuchando.
+        if (!(await roleIn(boardId, userId))) {
+          await socket.leave(boardRoom(boardId));
+          return reply({ ok: false, error: 'Sin acceso a este tablero' });
+        }
         reply({ ok: true });
         void emitPresence(boardId);
       } catch (err) {
@@ -139,12 +157,19 @@ async function emitPresence(boardId: string) {
   }
 }
 
-/** Room del tablero, excluyendo al socket que hizo el request (ya tiene el cambio). */
+/**
+ * Room del tablero, excluyendo al socket que hizo el request (ya tiene el cambio).
+ * S-14: la cabecera la escribe el cliente, así que solo se respeta si nombra un socket
+ * real de ESE mismo usuario. Si no, alguien podría excluir a otra persona (o a toda la
+ * room) para hacer cambios sin que los demás los vean en vivo.
+ */
 function targetFor(boardId: string, req: FastifyRequest) {
   if (!io) return null;
-  const origin = req.headers[SOCKET_ID_HEADER];
   const room = io.to(boardRoom(boardId));
-  return typeof origin === 'string' && origin ? room.except(origin) : room;
+  const origin = req.headers[SOCKET_ID_HEADER];
+  if (typeof origin !== 'string' || !origin) return room;
+  const own = io.sockets.sockets.get(origin);
+  return own && own.data.userId === req.user.sub ? room.except(own.id) : room;
 }
 
 /** Cierra la sesión en todas las pestañas del usuario: les avisa y corta sus sockets (S-10). */
@@ -182,4 +207,6 @@ export const notify = {
     void emitPresence(boardId);
   },
   boardRemoved: (boardId: string, memberIds: string[]) => kick(boardId, memberIds),
+  /** S-20: el servidor reordenó posiciones; todos (también quien hizo el cambio) recargan. */
+  boardReordered: (boardId: string) => io?.to(boardRoom(boardId)).emit('board:reordered', { boardId }),
 };

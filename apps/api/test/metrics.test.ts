@@ -2,13 +2,15 @@ import type { AddressInfo } from 'node:net';
 import Fastify from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { prisma, registerUser, resetDb, startServer } from './helpers';
+import { fakeAnalysis } from './ml-fixture';
 
-// Servicio ML falso: guarda lo que recibe y responde algo fijo.
+// Servicio ML falso: guarda lo que recibe y responde algo fijo (o lo que diga `nextReply`).
 const received: { body: any; token: string | undefined }[] = [];
+let nextReply: unknown = null;
 const fakeMl = Fastify();
 fakeMl.post('/analyze', async (req) => {
   received.push({ body: req.body, token: req.headers['x-ml-token'] as string | undefined });
-  return { insights: ['respuesta del servicio ML falso'] };
+  return nextReply ?? fakeAnalysis(['respuesta del servicio ML falso']);
 });
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -70,7 +72,7 @@ describe('GET /boards/:id/metrics', () => {
     received.length = 0;
     const r = await ana.req('GET', `/boards/${boardId}/metrics`);
     expect(r.status).toBe(200);
-    expect(r.data).toEqual({ insights: ['respuesta del servicio ML falso'] });
+    expect(r.data.insights).toEqual(['respuesta del servicio ML falso']);
 
     const [{ body, token }] = received;
     expect(token).toBe('token-de-prueba');
@@ -89,6 +91,22 @@ describe('GET /boards/:id/metrics', () => {
     received.length = 0;
     await ana.req('GET', `/boards/${boardId}/metrics`);
     expect(JSON.stringify(received[0].body)).not.toContain('Privada de Beto');
+  });
+
+  it('S-19: una respuesta del ML con otra forma no llega al navegador (503)', async () => {
+    nextReply = { insights: '<script>alert(1)</script>', summary: 'no es un objeto' };
+    const r = await ana.req('GET', `/boards/${boardId}/metrics`);
+    nextReply = null;
+    expect(r.status).toBe(503);
+    expect(JSON.stringify(r.data)).not.toContain('<script>');
+  });
+
+  it('S-19: los campos que el ML agregue de más se descartan', async () => {
+    nextReply = { ...fakeAnalysis(['ok']), secreto: 'no debería viajar' };
+    const r = await ana.req('GET', `/boards/${boardId}/metrics`);
+    nextReply = null;
+    expect(r.status).toBe(200);
+    expect(r.data.secreto).toBeUndefined();
   });
 
   it('si el servicio ML no responde: 503 con mensaje amigable, sin detalles internos', async () => {

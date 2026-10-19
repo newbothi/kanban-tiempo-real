@@ -9,7 +9,8 @@ import {
   type MemberDto,
 } from '@kanban/shared';
 import { prisma } from '../db';
-import { notFound, parseOr400 } from '../http';
+import { limitWrites, notFound, parseOr400, rejectMalformedIds } from '../http';
+import type { SlidingWindowLimiter, resolveLimits } from '../limits';
 import { requireBoardRole } from '../auth/access';
 import { notify } from '../realtime';
 import { MlUnavailableError, analyzeBoard } from '../ml/client';
@@ -22,11 +23,18 @@ import {
 
 const DEFAULT_COLUMNS = ['Por hacer', 'En progreso', 'Hecho'];
 
-export async function boardRoutes(app: FastifyInstance, opts: { metrics?: MetricsService }) {
+export interface RouteOptions {
+  limits: ReturnType<typeof resolveLimits>;
+  writes: SlidingWindowLimiter;
+}
+
+export async function boardRoutes(app: FastifyInstance, opts: RouteOptions & { metrics?: MetricsService }) {
   const metrics = opts.metrics ?? new MetricsService();
+  app.addHook('preValidation', rejectMalformedIds);
 
   // Todas las rutas de este plugin requieren sesión.
   app.addHook('preHandler', app.authenticate);
+  app.addHook('preHandler', limitWrites(opts.writes));
 
   // Mis tableros (donde soy miembro o dueño)
   app.get('/boards', async (req): Promise<BoardSummaryDto[]> => {
@@ -46,6 +54,15 @@ export async function boardRoutes(app: FastifyInstance, opts: { metrics?: Metric
   app.post('/boards', async (req, reply) => {
     const input = parseOr400(createBoardSchema, req.body, reply);
     if (!input) return;
+
+    // S-16: tope de tableros propios por usuario.
+    const owned = await prisma.boardMember.count({ where: { userId: req.user.sub, role: 'owner' } });
+    if (owned >= opts.limits.boardsPerOwner) {
+      return reply.code(403).send({
+        error: 'QuotaExceeded',
+        message: `Puedes tener hasta ${opts.limits.boardsPerOwner} tableros propios; elimina alguno para crear otro`,
+      });
+    }
 
     const keys = generateNKeysBetween(null, null, DEFAULT_COLUMNS.length);
     const board = await prisma.board.create({

@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { io } from 'socket.io-client';
 import {
+  addMember,
   connected,
   httpClient,
   joinBoard,
@@ -187,5 +188,26 @@ describe('S-15: WebSocket desde otro sitio (CSWSH)', () => {
 
   it('acepta el mismo origen', async () => {
     expect(await connected(conOrigen(ana.cookie, server.base))).toBe('ok');
+  });
+});
+
+describe('S-14: x-socket-id no sirve para ocultar cambios a otros', () => {
+  it('un miembro no puede excluir el socket de otra persona ni la room entera', async () => {
+    const eva = await registerUser(server.base, 'Eva');
+    const fede = await registerUser(server.base, 'Fede');
+    const b = (await eva.req('POST', '/boards', { name: 'Compartido' })).data.id;
+    const col = (await eva.req('GET', `/boards/${b}`)).data.columns[0].id;
+    await addMember(eva, b, fede);
+    const card = (await eva.req('POST', '/cards', { columnId: col, title: 'Original' })).data.id;
+
+    const sEva = track(socketFor(server.base, eva.cookie));
+    await connected(sEva);
+    expect((await joinBoard(sEva, b)).ok).toBe(true);
+
+    for (const fake of [sEva.id!, `board:${b}`, `user:${eva.id}`]) {
+      const title = `Cambio con ${fake.slice(0, 6)}`;
+      await fede.req('PATCH', `/cards/${card}`, { title }, { 'x-socket-id': fake });
+      await waitForEvent(sEva, 'card:updated', (c) => c.title === title);
+    }
   });
 });

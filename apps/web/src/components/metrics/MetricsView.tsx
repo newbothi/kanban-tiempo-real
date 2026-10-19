@@ -20,7 +20,9 @@ export function MetricsView({ board, data, error, isFetching }: Props) {
         <h3>{unavailable ? 'El servicio de análisis no está disponible' : 'No se pudieron calcular las métricas'}</h3>
         <p>
           {unavailable
-            ? 'El tablero funciona normalmente; solo el análisis (servicio Python) no responde. En local, levántalo con uvicorn y revisa que ML_URL en apps/api/.env apunte a su puerto.'
+            ? 'El tablero funciona normalmente; solo el análisis no responde. Intenta de nuevo en unos minutos.' +
+              // La pista de configuración solo se muestra en desarrollo, nunca en la demo pública.
+              (import.meta.env.DEV ? ' (En local: levanta uvicorn y revisa que ML_URL en apps/api/.env apunte a su puerto.)' : '')
             : error.message}
         </p>
       </div>

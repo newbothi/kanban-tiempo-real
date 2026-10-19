@@ -16,6 +16,8 @@ export interface ServerToClientEvents {
   'board:removed': (payload: { boardId: string }) => void;
   /** Cambió tu lista de tableros (p. ej. te invitaron a uno). */
   'boards:changed': () => void;
+  /** El servidor reordenó las posiciones de una columna (S-20): hay que recargar el tablero. */
+  'board:reordered': (payload: { boardId: string }) => void;
   /** Tu sesión terminó (cerraste sesión en otra pestaña o expiró): vuelve al login. */
   'session:ended': () => void;
 }
