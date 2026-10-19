@@ -5,7 +5,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { SOCKET_ID_HEADER } from '@kanban/shared';
-import { prisma } from './db';
+import { isConflict, prisma } from './db';
 import { authPlugin } from './auth/plugin';
 import { attachRealtime } from './realtime';
 import { boardRoutes } from './routes/boards';
@@ -128,6 +128,15 @@ export async function buildApp(opts: BuildOptions = {}) {
   // Errores inesperados: el detalle va al log, nunca al cliente
   // (los mensajes de Prisma incluyen rutas de archivos y partes de la consulta).
   app.setErrorHandler((err: FastifyError, req, reply) => {
+    // Un conflicto de concurrencia que sobrevivió a los reintentos: no es un bug del cliente
+    // ni del servidor, es carga. Se responde 503 con Retry-After para que vuelva a intentar.
+    if (isConflict(err)) {
+      req.log.warn({ err }, 'conflicto de concurrencia tras reintentos');
+      return reply.code(503).header('retry-after', '1').send({
+        error: 'ServiceUnavailable',
+        message: 'El servidor está ocupado; intenta de nuevo en un momento',
+      });
+    }
     const status = err.statusCode ?? 500;
     if (status >= 500) {
       req.log.error(err);

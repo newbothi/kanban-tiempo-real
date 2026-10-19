@@ -140,11 +140,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Como en Azure SQL: READ_COMMITTED_SNAPSHOT activado (las lecturas no bloquean escrituras).
       - name: Crear base de prueba
         run: >
           docker exec ${{ job.services.mssql.id }}
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C
-          -Q "IF DB_ID('kanban_test') IS NULL CREATE DATABASE kanban_test"
+          -Q "IF DB_ID('kanban_test') IS NULL CREATE DATABASE kanban_test; ALTER DATABASE kanban_test SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
       - run: npm run db:generate -w @kanban/api
       - name: Tests de la API, unitarios + integración (cobertura mínima 80 %)
         run: npm run test:coverage -w @kanban/api
@@ -236,10 +237,11 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Como en Azure SQL: READ_COMMITTED_SNAPSHOT activado (las lecturas no bloquean escrituras).
       - name: Base de datos y migraciones (como en Azure, desde fuera del contenedor)
         run: |
           docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
-            -P "$MSSQL_SA_PASSWORD" -C -Q "IF DB_ID('kanban_stack') IS NULL CREATE DATABASE kanban_stack"
+            -P "$MSSQL_SA_PASSWORD" -C -Q "IF DB_ID('kanban_stack') IS NULL CREATE DATABASE kanban_stack; ALTER DATABASE kanban_stack SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
           DATABASE_URL="$STACK_DB_URL" npm run db:deploy -w @kanban/api
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - name: Construir la imagen de la API
