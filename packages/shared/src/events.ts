@@ -14,8 +14,10 @@ export interface ServerToClientEvents {
   'board:membersChanged': (payload: { boardId: string }) => void;
   /** Perdiste acceso a un tablero (te sacaron o lo eliminaron). */
   'board:removed': (payload: { boardId: string }) => void;
-  /** Cambió tu lista de tableros (p. ej. te invitaron a uno). */
+  /** Cambió tu lista de tableros (p. ej. aceptaste una invitación). */
   'boards:changed': () => void;
+  /** Cambiaron tus invitaciones pendientes (te invitaron o cancelaron una). */
+  'invites:changed': () => void;
   /** El servidor reordenó las posiciones de una columna (S-20): hay que recargar el tablero. */
   'board:reordered': (payload: { boardId: string }) => void;
   /** Tu sesión terminó (cerraste sesión en otra pestaña o expiró): vuelve al login. */

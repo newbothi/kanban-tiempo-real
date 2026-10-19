@@ -110,14 +110,18 @@ export async function registerUser(base: string, name: string) {
   return Object.assign(c, { id: r.data.id as string, email });
 }
 
-/** Hace que `member` sea miembro del tablero de `owner` (por la API, como en la app). */
+/** Hace que `member` sea miembro del tablero de `owner`: el dueño invita y el otro acepta (S-08). */
 export async function addMember(
   owner: Awaited<ReturnType<typeof registerUser>>,
   boardId: string,
   member: Awaited<ReturnType<typeof registerUser>>,
 ) {
   const r = await owner.req('POST', `/boards/${boardId}/members`, { email: member.email });
-  if (r.status >= 300) throw new Error(`invitación falló: ${r.status} ${JSON.stringify(r.data)}`);
+  if (r.status !== 202) throw new Error(`invitación falló: ${r.status} ${JSON.stringify(r.data)}`);
+  const invite = (await member.req('GET', '/invites')).data.find((i: { boardId: string }) => i.boardId === boardId);
+  if (!invite) throw new Error('la invitación no le llegó al invitado');
+  const a = await member.req('POST', `/invites/${invite.id}/accept`);
+  if (a.status !== 204) throw new Error(`aceptar falló: ${a.status} ${JSON.stringify(a.data)}`);
 }
 
 export { prisma };

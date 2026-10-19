@@ -197,6 +197,11 @@ export const notify = {
   cardDeleted: (req: FastifyRequest, boardId: string, id: string) =>
     targetFor(boardId, req)?.emit('card:deleted', { id }),
 
+  /** Cambiaron las invitaciones sin responder de un tablero (el dueño las ve en Miembros). */
+  pendingInvitesChanged: (boardId: string) =>
+    io?.to(boardRoom(boardId)).emit('board:membersChanged', { boardId }),
+  /** Cambiaron las invitaciones pendientes de este usuario. */
+  invitesChanged: (userId: string) => io?.to(userRoom(userId)).emit('invites:changed'),
   memberAdded: (boardId: string, userId: string) => {
     io?.to(boardRoom(boardId)).emit('board:membersChanged', { boardId });
     io?.to(userRoom(userId)).emit('boards:changed');

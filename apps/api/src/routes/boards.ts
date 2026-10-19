@@ -7,10 +7,13 @@ import {
   type BoardRole,
   type BoardSummaryDto,
   type MemberDto,
+  type PendingInviteDto,
 } from '@kanban/shared';
+import { rejectIfDemo } from '../demo/demo';
+import { SlidingWindowLimiter } from '../limits';
 import { prisma } from '../db';
 import { limitWrites, notFound, parseOr400, rejectMalformedIds } from '../http';
-import type { SlidingWindowLimiter, resolveLimits } from '../limits';
+import type { resolveLimits } from '../limits';
 import { requireBoardRole } from '../auth/access';
 import { notify } from '../realtime';
 import { MlUnavailableError, analyzeBoard } from '../ml/client';
@@ -28,8 +31,12 @@ export interface RouteOptions {
   writes: SlidingWindowLimiter;
 }
 
+const MAX_PENDING_INVITES = 50;
+const INVITE_ACCEPTED_MESSAGE = 'Si el correo corresponde a una cuenta, la persona verá la invitación al entrar.';
+
 export async function boardRoutes(app: FastifyInstance, opts: RouteOptions & { metrics?: MetricsService }) {
   const metrics = opts.metrics ?? new MetricsService();
+  const invitesSent = new SlidingWindowLimiter(20, 60 * 60 * 1000); // invitaciones por dueño y hora
   app.addHook('preValidation', rejectMalformedIds);
 
   // Todas las rutas de este plugin requieren sesión.
@@ -117,6 +124,7 @@ export async function boardRoutes(app: FastifyInstance, opts: RouteOptions & { m
   app.delete<{ Params: { id: string } }>('/boards/:id', async (req, reply) => {
     if (!(await requireBoardRole(reply, req.params.id, req.user.sub, 'owner'))) return;
 
+    if (await rejectIfDemo(reply, req.user.sub, 'eliminar tableros')) return;
     const members = await prisma.boardMember.findMany({
       where: { boardId: req.params.id },
       select: { userId: true },
@@ -184,36 +192,74 @@ export async function boardRoutes(app: FastifyInstance, opts: RouteOptions & { m
     );
   });
 
-  // Invitar por correo: solo el dueño. El usuario debe estar registrado.
+  /**
+   * Invitar por correo (S-08): solo el dueño. Se guarda una invitación PENDIENTE que la
+   * persona acepta o rechaza. La respuesta es siempre la misma (202), exista o no la
+   * cuenta, ya sea miembro o ya esté invitada: así no se puede averiguar qué correos
+   * están registrados.
+   */
   app.post<{ Params: { id: string } }>('/boards/:id/members', async (req, reply) => {
-    if (!(await requireBoardRole(reply, req.params.id, req.user.sub, 'owner'))) return;
+    const boardId = req.params.id;
+    if (!(await requireBoardRole(reply, boardId, req.user.sub, 'owner'))) return;
+    if (await rejectIfDemo(reply, req.user.sub, 'invitar personas')) return;
     const input = parseOr400(addMemberSchema, req.body, reply);
     if (!input) return;
 
-    const user = await prisma.user.findUnique({
-      where: { email: input.email },
-      select: { id: true, name: true, email: true },
-    });
-    if (!user) {
+    const wait = invitesSent.take(req.user.sub);
+    if (wait > 0) {
       return reply
-        .code(404)
-        .send({ error: 'NotFound', message: 'No hay ningún usuario registrado con ese correo' });
+        .code(429)
+        .header('retry-after', String(Math.ceil(wait / 1000)))
+        .send({ error: 'TooManyRequests', message: 'Enviaste muchas invitaciones; espera un rato' });
+    }
+    const pending = await prisma.boardInvite.count({ where: { boardId } });
+    if (pending >= MAX_PENDING_INVITES) {
+      return reply.code(403).send({
+        error: 'QuotaExceeded',
+        message: `El tablero tiene ${MAX_PENDING_INVITES} invitaciones sin responder; cancela alguna primero`,
+      });
     }
 
-    const already = await prisma.boardMember.findUnique({
-      where: { boardId_userId: { boardId: req.params.id, userId: user.id } },
-    });
-    if (already) {
-      return reply.code(409).send({ error: 'Conflict', message: 'Ya es miembro del tablero' });
+    const invitee = await prisma.user.findUnique({ where: { email: input.email }, select: { id: true } });
+    const alreadyMember =
+      invitee && (await prisma.boardMember.findUnique({ where: { boardId_userId: { boardId, userId: invitee.id } } }));
+    if (!alreadyMember) {
+      try {
+        await prisma.boardInvite.create({ data: { boardId, email: input.email, invitedById: req.user.sub } });
+      } catch (err) {
+        // Ya estaba invitada (índice único boardId + email): no es un error para quien invita.
+        if ((err as { code?: string }).code !== 'P2002') throw err;
+      }
+      if (invitee) notify.invitesChanged(invitee.id);
+      notify.pendingInvitesChanged(boardId);
     }
+    return reply.code(202).send({ message: INVITE_ACCEPTED_MESSAGE });
+  });
 
-    await prisma.boardMember.create({
-      data: { boardId: req.params.id, userId: user.id, role: 'member' },
+  // Invitaciones sin responder de un tablero (solo el dueño las ve).
+  app.get<{ Params: { id: string } }>('/boards/:id/invites', async (req, reply) => {
+    if (!(await requireBoardRole(reply, req.params.id, req.user.sub, 'owner'))) return;
+    const invites = await prisma.boardInvite.findMany({
+      where: { boardId: req.params.id },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, createdAt: true },
     });
-    notify.memberAdded(req.params.id, user.id);
-    return reply
-      .code(201)
-      .send({ userId: user.id, name: user.name, email: user.email, role: 'member' } satisfies MemberDto);
+    return invites.map((i): PendingInviteDto => ({ ...i, createdAt: i.createdAt.toISOString() }));
+  });
+
+  // Cancelar una invitación que todavía nadie respondió.
+  app.delete<{ Params: { id: string; inviteId: string } }>('/boards/:id/invites/:inviteId', async (req, reply) => {
+    if (!(await requireBoardRole(reply, req.params.id, req.user.sub, 'owner'))) return;
+    const invite = await prisma.boardInvite.findFirst({
+      where: { id: req.params.inviteId, boardId: req.params.id },
+      select: { email: true },
+    });
+    if (!invite) return notFound(reply, 'La invitación');
+    await prisma.boardInvite.delete({ where: { id: req.params.inviteId } });
+    const invitee = await prisma.user.findUnique({ where: { email: invite.email }, select: { id: true } });
+    if (invitee) notify.invitesChanged(invitee.id);
+    notify.pendingInvitesChanged(req.params.id);
+    return reply.code(204).send();
   });
 
   // Quitar miembro: el dueño puede quitar a cualquiera (menos a sí mismo);
@@ -227,6 +273,7 @@ export async function boardRoutes(app: FastifyInstance, opts: RouteOptions & { m
       if (!myRole) return;
 
       const leavingMyself = userId === me;
+      if (!leavingMyself && (await rejectIfDemo(reply, me, 'quitar miembros'))) return;
       if (!leavingMyself && myRole !== 'owner') {
         return reply
           .code(403)

@@ -20,7 +20,14 @@ describe('registro', () => {
       password: 'secreta123',
     });
     expect(r.status).toBe(201);
-    expect(r.data).toEqual({ id: expect.any(String), email: 'ana@correo.cl', name: 'Ana' });
+    expect(r.data).toEqual({
+      id: expect.any(String),
+      email: 'ana@correo.cl',
+      name: 'Ana',
+      emailVerified: false,
+      verificationRequired: false, // sin servicio de correo configurado no se exige
+      isDemo: false,
+    });
     expect((await c.req('GET', '/auth/me')).data.name).toBe('Ana');
   });
 
