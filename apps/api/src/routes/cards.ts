@@ -20,12 +20,24 @@ const cardSelect = { id: true, columnId: true, title: true, position: true } as 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 /**
- * Con muchas creaciones o movimientos simultáneos en la misma columna, SQL Server puede
- * abortar una de dos transacciones que se bloquean mutuamente (deadlock, error 1205;
- * Prisma: P2034), o una transacción puede no conseguir conexión a tiempo (P2028).
- * Se reintenta unas veces en vez de responder 500.
+ * Bloqueo pesimista por columna (S-20): las creaciones y movimientos que tocan la misma
+ * columna esperan su turno en vez de bloquearse mutuamente (deadlock) o calcular la misma
+ * posición. UPDLOCK + HOLDLOCK sobre la fila de la columna dura hasta el fin de la
+ * transacción. Siempre en el mismo orden (por id) para que dos movimientos entre las
+ * mismas columnas no se crucen.
  */
-async function withRetry<T>(run: () => Promise<T>, attempts = 4): Promise<T> {
+async function lockColumns(tx: Tx, columnIds: string[]) {
+  for (const id of [...new Set(columnIds)].sort()) {
+    await tx.$queryRaw`SELECT [id] FROM [dbo].[Column] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = ${id}`;
+  }
+}
+
+/**
+ * Red de seguridad: si aun así SQL Server aborta una transacción por deadlock (error 1205;
+ * Prisma: P2034) o una transacción no consigue conexión a tiempo (P2028), se reintenta
+ * unas veces en vez de responder 500.
+ */
+async function withRetry<T>(run: () => Promise<T>, attempts = 5): Promise<T> {
   for (let i = 1; ; i++) {
     try {
       return await run();
@@ -101,6 +113,7 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
 
     let rebalanced = false;
     const card = await withRetry(() => prisma.$transaction(async (tx: Tx) => {
+      await lockColumns(tx, [input.columnId]);
       const lastKey = async () =>
         (
           await tx.card.findFirst({
@@ -170,6 +183,9 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
       // (si no, alguien podría mover tarjetas a un tablero ajeno).
       const target = await tx.column.findUnique({ where: { id: input.columnId } });
       if (!target || target.boardId !== boardId) return null;
+
+      const current = await tx.card.findUniqueOrThrow({ where: { id: cardId }, select: { columnId: true } });
+      await lockColumns(tx, [current.columnId, input.columnId]);
 
       const placed = await positionWithRebalance(tx, input.columnId, cardId, input.index);
       rebalanced = placed.rebalanced;
