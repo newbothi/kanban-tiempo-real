@@ -224,8 +224,9 @@ jobs:
           --health-interval 10s --health-timeout 5s --health-retries 12
     env:
       STACK_DB_URL: sqlserver://localhost:1433;database=kanban_stack;user=sa;password=Kanban_CI_2026!;encrypt=true;trustServerCertificate=true
-      ZAP_IMAGE: ghcr.io/zaproxy/zaproxy:stable
-      K6_IMAGE: grafana/k6:latest
+      # Fijadas por digest (S-23). Para actualizarlas: el paso «Digests» del CI muestra los actuales.
+      ZAP_IMAGE: ghcr.io/zaproxy/zaproxy@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6
+      K6_IMAGE: grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -285,15 +286,17 @@ jobs:
       - name: k6 (50 personas moviendo tarjetas + carga de /metrics)
         run: |
           mkdir -p k6 && chmod 777 k6
+          set +e
           docker run --rm --network host -v "$PWD/qa/k6:/scripts:ro" -v "$PWD/k6:/out" -w /out \
-            -e API_URL=http://127.0.0.1:3000 "$K6_IMAGE" run --quiet /scripts/carga.js
-          sed 's/^/::notice title=k6::/' k6/k6-resumen.txt | head -5
-      - name: Digests de las imágenes de ZAP y k6 (para fijarlas)
-        if: always()
-        run: |
-          for i in "$ZAP_IMAGE" "$K6_IMAGE"; do
-            echo "::notice title=digest $i::$(docker image inspect "$i" --format '{{index .RepoDigests 0}}' 2>/dev/null)"
-          done
+            -e API_URL=http://127.0.0.1:3000 "$K6_IMAGE" run --quiet --no-color /scripts/carga.js > k6/k6.log 2>&1
+          code=$?
+          set -e
+          [ -f k6/k6-resumen.txt ] && sed 's/^/::notice title=k6::/' k6/k6-resumen.txt | head -5
+          if [ "$code" != 0 ]; then
+            grep -iE "level=error|error|threshold|✗|crossed" k6/k6.log | head -15 | sed 's/^/::error title=k6::/'
+            tail -25 k6/k6.log
+          fi
+          exit $code
       - name: Logs de los contenedores
         if: failure()
         run: |

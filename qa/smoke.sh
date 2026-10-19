@@ -24,7 +24,7 @@ expect_status "ML sin token → 401" 401 -X POST -H 'content-type: application/j
 expect_status "ML /docs oculto" 404 "$ML/docs"
 expect_status "API /api/auth/me sin sesión → 401" 401 "$API/api/auth/me"
 headers=$(curl -sI "$API/")
-for h in content-security-policy strict-transport-security x-content-type-options x-frame-options referrer-policy; do
+for h in content-security-policy strict-transport-security x-content-type-options x-frame-options referrer-policy permissions-policy cross-origin-embedder-policy; do
   grep -qi "^$h:" <<<"$headers" && ok "cabecera $h" || fail "falta la cabecera $h"
 done
 grep -qi '^x-powered-by:' <<<"$headers" && fail "la API revela x-powered-by" || ok "sin x-powered-by"

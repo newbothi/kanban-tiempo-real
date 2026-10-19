@@ -104,7 +104,13 @@ export async function buildApp(opts: BuildOptions = {}) {
     // HSTS: el navegador recuerda usar solo HTTPS durante un año.
     strictTransportSecurity: production ? { maxAge: 31_536_000, includeSubDomains: true } : false,
     referrerPolicy: { policy: 'no-referrer' },
-    crossOriginEmbedderPolicy: false,
+    // Todo lo que carga la app es del mismo origen, así que se puede exigir (ZAP 90004).
+    crossOriginEmbedderPolicy: { policy: 'require-corp' },
+  });
+  // La app no usa cámara, micrófono, ubicación ni pagos: se desactivan para cualquier
+  // contenido que lograra colarse en la página (ZAP 10063).
+  app.addHook('onSend', async (_req, reply) => {
+    reply.header('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()');
   });
 
   // CORS solo si la web vive en otro origen (desarrollo con Vite). En producción todo

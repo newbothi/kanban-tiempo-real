@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClientProvider } from '@tanstack/react-query'
+import { enableJitlessValidation } from '@kanban/shared'
 import './index.css'
 import App from './App.tsx'
 import { setUnauthorizedHandler } from './api/client'
@@ -10,6 +11,9 @@ import { disconnectSocket, socket } from './realtime/socket'
 import { ErrorBoundary } from './ui/ErrorBoundary'
 import { Toaster } from './ui/toast'
 import { showToast } from './ui/toast-store'
+
+// Sin `new Function` en el navegador (ver enableJitlessValidation): la CSP no permite eval.
+enableJitlessValidation()
 
 const queryClient = createQueryClient()
 

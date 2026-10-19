@@ -4,6 +4,16 @@ import { MAX_PASSWORD_BYTES, isCommonPassword, passwordBytes } from './passwords
 // Validación de entrada. La API la usa para validar el body;
 // el front la puede usar para validar formularios antes de enviar.
 
+/**
+ * Para el navegador: Zod 4 prueba si puede usar `new Function` para validar más rápido. Con
+ * una CSP estricta (script-src 'self', sin 'unsafe-eval') no puede, y el intento queda
+ * registrado como violación de CSP aunque falle en silencio. En modo jitless no lo intenta.
+ * Se llama una vez al arrancar el front, antes de validar nada.
+ */
+export function enableJitlessValidation() {
+  z.config({ jitless: true });
+}
+
 // Primero normaliza (quita espacios, minúsculas) y DESPUÉS valida el formato:
 // así un correo pegado con un espacio al final no se rechaza.
 const email = z.string().trim().toLowerCase().max(254).pipe(z.email('Correo inválido'));

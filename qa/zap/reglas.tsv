@@ -11,3 +11,5 @@
 10037	FAIL	(El servidor revela X-Powered-By)
 10098	FAIL	(CORS mal configurado)
 90022	FAIL	(Mensajes de error con detalles internos)
+10063	FAIL	(Falta Permissions-Policy)
+90004	FAIL	(Falta Cross-Origin-Embedder-Policy)

@@ -28,6 +28,8 @@ describe('S-11: cabeceras de seguridad', () => {
       expect(csp, url).toContain("script-src 'self'");
       expect(r.headers['x-content-type-options'], url).toBe('nosniff');
       expect(r.headers['referrer-policy'], url).toBe('no-referrer');
+      expect(r.headers['permissions-policy'], url).toContain('camera=()');
+      expect(r.headers['cross-origin-embedder-policy'], url).toBe('require-corp');
     }
   });
 });
