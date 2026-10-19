@@ -14,6 +14,7 @@ from app.schemas import Forecast, ForecastPoint, HistogramBin
 HISTORY_WEEKS = 12
 MIN_WEEKS = 4
 MAX_HORIZON = 520  # 10 años: si no alcanza, el ritmo es prácticamente cero
+BLOCK_WEEKS = 26  # se simula por bloques de medio año y se para cuando todas terminaron
 
 
 def simulate(counts: list[int], remaining: int, now: datetime, simulations: int, seed: int = 42) -> Forecast | None:
@@ -22,11 +23,23 @@ def simulate(counts: list[int], remaining: int, now: datetime, simulations: int,
         return None
 
     rng = np.random.default_rng(seed)
-    samples = rng.choice(np.array(history), size=(simulations, MAX_HORIZON), replace=True)
-    cumulative = samples.cumsum(axis=1)
-    reached = cumulative >= remaining
-    finished = reached.any(axis=1)
-    weeks = np.where(finished, reached.argmax(axis=1) + 1, MAX_HORIZON)
+    hist = np.array(history, dtype=np.int32)
+    # Antes se generaba la matriz completa (simulaciones × 520 semanas, int64): con 50.000
+    # simulaciones eran ~600 MB. Por bloques y en int32, la memoria queda acotada y casi
+    # siempre basta el primer bloque.
+    weeks = np.full(simulations, MAX_HORIZON, dtype=np.int32)
+    finished = np.zeros(simulations, dtype=bool)
+    total = np.zeros(simulations, dtype=np.int64)
+    for start in range(0, MAX_HORIZON, BLOCK_WEEKS):
+        block = rng.choice(hist, size=(simulations, BLOCK_WEEKS), replace=True)
+        cumulative = total[:, None] + block.cumsum(axis=1, dtype=np.int64)
+        reached = cumulative >= remaining
+        newly = ~finished & reached.any(axis=1)
+        weeks[newly] = start + reached[newly].argmax(axis=1) + 1
+        finished |= newly
+        total = cumulative[:, -1]
+        if finished.all():
+            break
 
     def point(q: float) -> ForecastPoint:
         w = int(np.ceil(np.percentile(weeks, q)))
