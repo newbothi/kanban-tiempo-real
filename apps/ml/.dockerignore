@@ -1,6 +1,18 @@
+# Solo app/ y requirements*.txt entran a la imagen
 .venv
-__pycache__
+**/__pycache__
 .pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
 tests
 scripts
 openapi.json
+Dockerfile
+
+# Secretos (S-24)
+**/.env
+**/.env.*
+**/*.pem
+**/*.key

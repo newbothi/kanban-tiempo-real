@@ -3,7 +3,6 @@ import { io } from 'socket.io-client';
 import {
   addMember,
   connected,
-  httpClient,
   joinBoard,
   registerUser,
   resetDb,

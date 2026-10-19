@@ -37,13 +37,13 @@ def features(card: CardTimeline, wip: int, kinds: list[str]) -> list[float]:
 
 
 def train_and_predict(board: Board, now: datetime) -> CycleTime | None:
-    done = [c for c in board.cards if c.done_at is not None]
+    done = [(c, c.done_at) for c in board.cards if c.done_at is not None]
     if len(done) < MIN_TRAIN:
         return None
 
     kinds = sorted({kind_of(c.title) for c in board.cards})
-    X = np.array([features(c, wip_at(board, c.started or c.created), kinds) for c in done])
-    y = np.array([days_between(c.created, c.done_at) for c in done])
+    X = np.array([features(c, wip_at(board, c.started or c.created), kinds) for c, _ in done])
+    y = np.array([days_between(c.created, done_at) for c, done_at in done])
 
     models = {
         "baseline_median": DummyRegressor(strategy="median"),
@@ -66,7 +66,7 @@ def train_and_predict(board: Board, now: datetime) -> CycleTime | None:
     # Interpretación con el modelo lineal (aunque no sea el ganador, es el explicable).
     linear = LinearRegression().fit(X, y)
     wip_effect = float(linear.coef_[0])
-    kind_coefs = dict(zip(kinds, linear.coef_[2:]))
+    kind_coefs = dict(zip(kinds, linear.coef_[2:], strict=True))
     mean_kind = float(np.mean(list(kind_coefs.values())))
     kind_effect = {k: float(v - mean_kind) for k, v in kind_coefs.items()}
 

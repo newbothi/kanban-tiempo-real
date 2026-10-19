@@ -1,11 +1,31 @@
+# Dependencias y salidas de build (se generan dentro de la imagen)
 **/node_modules
 **/dist
-**/.env
-**/.env.test
 apps/api/src/generated
 **/test-results
 **/playwright-report
+**/coverage
+
+# Secretos: nunca deben entrar al contexto de build (S-24)
+**/.env
+**/.env.*
+!**/.env.example
+**/*.pem
+**/*.key
+**/*.pfx
+**/*.p12
+**/*.crt
+**/id_rsa*
+**/id_ed25519*
+**/.npmrc
+**/*.publishsettings
+**/.azure
+
+# Lo que la imagen no usa
 .git
 .github
 docs
 apps/ml
+**/.vscode
+**/.idea
+**/*.log

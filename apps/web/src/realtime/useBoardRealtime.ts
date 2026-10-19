@@ -46,7 +46,9 @@ export function useBoardRealtime(boardId: string, onRemoved: () => void) {
   const [status, setStatus] = useState<RealtimeStatus>(socket.connected ? 'online' : 'connecting');
   const [viewers, setViewers] = useState(1);
   const onRemovedRef = useRef(onRemoved);
-  onRemovedRef.current = onRemoved;
+  useEffect(() => {
+    onRemovedRef.current = onRemoved;
+  });
 
   useEffect(() => {
     const key = keys.board(boardId);

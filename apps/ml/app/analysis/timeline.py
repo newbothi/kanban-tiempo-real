@@ -5,7 +5,7 @@ from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from app.schemas import AnalyzeRequest
+from app.schemas import AnalyzeRequest, EventIn
 
 DAY = 86_400.0
 
@@ -47,7 +47,7 @@ def build(req: AnalyzeRequest) -> Board:
     first_col, done_col = cols[0].id, cols[-1].id
     middle = {c.id for c in cols[1:-1]}
 
-    by_card: dict[str, list] = {}
+    by_card: dict[str, list[EventIn]] = {}
     for ev in sorted(req.events, key=lambda e: e.at):
         by_card.setdefault(ev.card_id, []).append(ev)
 

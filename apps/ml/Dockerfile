@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-FROM python:3.13-slim
+# S-23: imagen base fijada por digest (Dependabot la actualiza).
+FROM python:3.13-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f
 
 # ML_ENV=production: exige ML_TOKEN (si falta, no arranca) y oculta /docs y /openapi.json
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -10,7 +11,15 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+# S-23: versiones exactas y verificadas por hash (requirements.txt lo genera pip-compile).
+# Después se desinstala pip: la app no lo usa y trae sus propias copias de urllib3, msgpack
+# y setuptools (Trivy las marca como vulnerables). También se aplican los parches del sistema.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip install --require-hashes --no-deps -r requirements.txt \
+ && pip uninstall -y pip setuptools wheel \
+ && python -c "import fastapi, uvicorn, sklearn, scipy"
 
 COPY app ./app
 

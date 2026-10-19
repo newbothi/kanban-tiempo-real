@@ -1,7 +1,8 @@
 # syntax=docker/dockerfile:1
 
+# S-23: imagen base fijada por digest (Dependabot la actualiza).
 # ---------- 1) Build: instala todo, genera Prisma y compila el front ----------
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS build
 WORKDIR /app
 
 # Primero solo los package.json: Docker reutiliza esta capa si las dependencias no cambian.
@@ -18,14 +19,25 @@ RUN DATABASE_URL="sqlserver://build:1433;database=build" npm run db:generate -w 
  && npm prune --omit=dev
 
 # ---------- 2) Runtime: solo lo necesario para ejecutar ----------
-FROM node:24-bookworm-slim
+FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
 ENV NODE_ENV=production \
     PORT=3000
 WORKDIR /app
+# Parches de seguridad del sistema, y fuera npm/npx/corepack: la imagen solo ejecuta `node`
+# y el npm que trae la imagen base arrastra sus propias dependencias vulnerables (Trivy).
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && rm -rf /var/lib/apt/lists/* \
+           /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+           /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 COPY --from=build --chown=node:node /app/package.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
-COPY --from=build --chown=node:node /app/packages ./packages
-COPY --from=build --chown=node:node /app/apps/api ./apps/api
+COPY --from=build --chown=node:node /app/packages/shared/package.json ./packages/shared/
+COPY --from=build --chown=node:node /app/packages/shared/src ./packages/shared/src
+# De la API solo el código (src, con el cliente Prisma generado): sin tests, seed,
+# migraciones ni configuración de Vitest (S-24).
+COPY --from=build --chown=node:node /app/apps/api/package.json /app/apps/api/tsconfig.json ./apps/api/
+COPY --from=build --chown=node:node /app/apps/api/src ./apps/api/src
 COPY --from=build --chown=node:node /app/apps/web/dist ./apps/web/dist
 COPY --from=build --chown=node:node /app/apps/web/package.json ./apps/web/
 

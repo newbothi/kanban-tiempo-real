@@ -38,17 +38,15 @@ def prod_env(monkeypatch):
 def test_s06_produccion_no_arranca_sin_token(monkeypatch):
     monkeypatch.setenv("ML_ENV", "production")
     monkeypatch.delenv("ML_TOKEN", raising=False)
-    with pytest.raises(RuntimeError, match="ML_TOKEN"):
-        with TestClient(create_app()):
-            pass
+    with pytest.raises(RuntimeError, match="ML_TOKEN"), TestClient(create_app()):
+        pass
 
 
 def test_s06_produccion_no_arranca_con_token_corto(monkeypatch):
     monkeypatch.setenv("ML_ENV", "production")
     monkeypatch.setenv("ML_TOKEN", "corto")
-    with pytest.raises(RuntimeError, match="ML_TOKEN"):
-        with TestClient(create_app()):
-            pass
+    with pytest.raises(RuntimeError, match="ML_TOKEN"), TestClient(create_app()):
+        pass
 
 
 def test_s06_produccion_exige_el_token(prod_env):

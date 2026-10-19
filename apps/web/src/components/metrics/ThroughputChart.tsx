@@ -107,7 +107,7 @@ export function ThroughputChart({ points }: { points: MlWeekPoint[] }) {
               <strong>{points[hover].done} terminadas</strong>
               <span>Semana desde el {fmtShort(points[hover].weekStart)}</span>
               {points[hover].trend != null && (
-                <span><i className="key key--line" /> Tendencia: {fmtNum(points[hover].trend!)}</span>
+                <span><i className="key key--line" /> Tendencia: {fmtNum(points[hover].trend ?? 0)}</span>
               )}
             </Tooltip>
           )}

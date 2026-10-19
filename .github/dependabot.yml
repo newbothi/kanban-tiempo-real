@@ -1,0 +1,38 @@
+# S-23: Dependabot propone PRs con las actualizaciones. Cada PR pasa por todo el CI
+# (tests, lint, cobertura, audit y Trivy) antes de poder fusionarse.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Parches y versiones menores en un solo PR; las mayores van por separado.
+      npm-menores:
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directory: /apps/ml
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      pip-menores:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: [/, /apps/ml]
+    schedule:
+      interval: weekly
+      day: monday
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ['*']

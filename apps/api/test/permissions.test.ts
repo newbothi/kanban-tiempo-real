@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { addMember, registerUser, resetDb, startServer } from './helpers';
+import { registerUser, resetDb, startServer } from './helpers';
 
 let server: Awaited<ReturnType<typeof startServer>>;
 let ana: Awaited<ReturnType<typeof registerUser>>;

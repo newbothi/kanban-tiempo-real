@@ -7,7 +7,8 @@ import { ApiError, setUnauthorizedHandler } from './api/client'
 import { setSessionUser } from './api/queries'
 import { disconnectSocket, socket } from './realtime/socket'
 import { ErrorBoundary } from './ui/ErrorBoundary'
-import { Toaster, showToast } from './ui/toast'
+import { Toaster } from './ui/toast'
+import { showToast } from './ui/toast-store'
 
 // Las mutaciones declaran su mensaje de error en `meta.errorMessage` (tipado aquí).
 declare module '@tanstack/react-query' {
@@ -52,7 +53,10 @@ setUnauthorizedHandler(() => endSession('Tu sesión expiró. Vuelve a iniciar se
 // El servidor avisa cuando la sesión se cerró en otra pestaña o dispositivo (o venció).
 socket.on('session:ended', () => endSession('Se cerró tu sesión. Vuelve a iniciar sesión.'))
 
-createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root')
+if (!rootElement) throw new Error('Falta el elemento #root en index.html')
+
+createRoot(rootElement).render(
   <StrictMode>
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>

@@ -25,4 +25,4 @@ def weekly(board: Board, now: datetime) -> list[tuple[datetime, int]]:
             if s <= c.done_at < s + timedelta(days=7):
                 counts[i] += 1
                 break
-    return list(zip(starts, counts))
+    return list(zip(starts, counts, strict=True))

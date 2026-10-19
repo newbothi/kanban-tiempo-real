@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { loginSchema, registerSchema } from '@kanban/shared';
 import { useInvitePreview, useLogin, useRegister } from '../api/queries';
 import { inviteTokenFromUrl } from '../api/inviteLink';
@@ -7,7 +7,12 @@ type Mode = 'login' | 'register';
 
 export function AuthScreen() {
   const [mode, setMode] = useState<Mode>('login');
-  const [form, setForm] = useState({ email: '', name: '', password: '' });
+  // email null = todavía no lo escribió (se puede completar con el del enlace de invitación).
+  const [draft, setDraft] = useState<{ email: string | null; name: string; password: string }>({
+    email: null,
+    name: '',
+    password: '',
+  });
   const [clientError, setClientError] = useState<string | null>(null);
   const login = useLogin();
   const register = useRegister();
@@ -15,12 +20,10 @@ export function AuthScreen() {
 
   // Si llegó desde el correo de invitación: mostramos quién invita y completamos el correo.
   const invite = useInvitePreview(inviteTokenFromUrl());
-  useEffect(() => {
-    if (invite.data) setForm((f) => (f.email ? f : { ...f, email: invite.data.email }));
-  }, [invite.data]);
+  const form = { ...draft, email: draft.email ?? invite.data?.email ?? '' };
 
   const set = (field: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
-    setForm((f) => ({ ...f, [field]: e.target.value }));
+    setDraft((f) => ({ ...f, [field]: e.target.value }));
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
