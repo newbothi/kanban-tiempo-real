@@ -222,7 +222,8 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
-      # trivy-action v0.35.0: el único tag que no fue alterado en el incidente de marzo de 2026.
+      # trivy-action: nunca por tag. v0.35.0 fue el único tag que no se alteró en el incidente de
+      # marzo de 2026; las versiones nuevas que proponga Dependabot se revisan antes de fusionar.
       - name: Trivy (escaneo de la imagen)
         uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:

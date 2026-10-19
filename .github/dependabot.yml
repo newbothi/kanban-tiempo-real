@@ -12,6 +12,13 @@ updates:
       # Parches y versiones menores en un solo PR; las mayores van por separado.
       npm-menores:
         update-types: [minor, patch]
+    ignore:
+      # Los tipos de Node siguen a la versión que corre en producción (Node 24 LTS).
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      # TypeScript 7 queda para cuando typescript-eslint lo soporte (hoy pide < 6.1).
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
 
   - package-ecosystem: pip
     directory: /apps/ml
@@ -27,6 +34,14 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # Solo parches y digests nuevos de la misma versión. Cambiar Node o Python de versión se hace
+    # a mano, junto con la versión que usa el CI para los tests (si no, se probaría una y se
+    # publicaría otra).
+    ignore:
+      - dependency-name: node
+        update-types: ['version-update:semver-major']
+      - dependency-name: python
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
 
   - package-ecosystem: github-actions
     directory: /
