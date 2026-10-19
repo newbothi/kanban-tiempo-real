@@ -12,6 +12,7 @@
  */
 import http from 'k6/http';
 import { check, fail, sleep } from 'k6';
+import exec from 'k6/execution';
 
 const API = __ENV.API_URL || 'http://127.0.0.1:3000';
 const USERS = 50;
@@ -29,6 +30,9 @@ export const options = {
     'http_req_duration{scenario:mover}': ['p(95)<1500'],
     'http_req_failed{scenario:metricas}': ['rate<0.01'],
     'http_req_duration{scenario:metricas}': ['p(95)<3000'],
+    // Que los escenarios de verdad hayan corrido (una excepción en el script no hace fallar a k6).
+    'http_reqs{scenario:mover}': ['count>1000'],
+    'http_reqs{scenario:metricas}': ['count>300'],
     checks: ['rate>0.99'],
   },
 };
@@ -101,8 +105,10 @@ export function mover(data) {
 const metricsOk = http.expectedStatuses(200, 429);
 
 export function metricas(data) {
-  const u = data.users[(__VU - 1) * PER_BOARD]; // los dueños de los tableros
-  const board = data.boards[__VU - 1];
+  // Los ids de VU son globales (los de este escenario no parten en 1): se usa el módulo.
+  const b = (exec.vu.idInTest - 1) % data.boards.length;
+  const u = data.users[b * PER_BOARD]; // los dueños de los tableros
+  const board = data.boards[b];
   const r = http.get(
     `${API}/api/boards/${board.id}/metrics`,
     Object.assign(json(u.cookie, u.i), { responseCallback: metricsOk, tags: { name: 'métricas' } }),
