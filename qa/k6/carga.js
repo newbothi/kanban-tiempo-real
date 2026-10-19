@@ -1,9 +1,9 @@
 /**
  * Prueba de carga (fase 4) contra las imágenes Docker reales, en el CI.
  *
- * - "mover": 50 personas moviendo tarjetas a la vez durante 1 minuto, en 10 tableros
+ * - "mover": 50 personas moviendo tarjetas a la vez durante 1 minuto, en tableros
  *   compartidos de a 5 (así también hay contención en las mismas columnas).
- * - "metricas": 10 personas pidiendo /metrics cada segundo. La API cachea el análisis y
+ * - "metricas": otras 10 personas pidiendo /metrics cada segundo. La API cachea el análisis y
  *   limita los cálculos por persona: 200 y 429 son respuestas esperadas; 5xx no.
  *
  * Cada persona virtual usa su propia IP en X-Forwarded-For: en Azure esa cabecera la pone el
@@ -15,15 +15,19 @@ import { check, fail, sleep } from 'k6';
 import exec from 'k6/execution';
 
 const API = __ENV.API_URL || 'http://127.0.0.1:3000';
-const USERS = 50;
+const MOVERS = 50;
+const READERS = 10;
+// Una cuenta por persona virtual: si dos VUs compartieran cuenta, sumarían sus cambios y
+// chocarían con el tope de 120 escrituras por minuto por persona (429, como debe ser).
+const USERS = MOVERS + READERS;
 const PER_BOARD = 5;
 const CARDS_PER_BOARD = 20;
 
 export const options = {
   setupTimeout: '3m',
   scenarios: {
-    mover: { executor: 'constant-vus', vus: USERS, duration: '60s', exec: 'mover' },
-    metricas: { executor: 'constant-vus', vus: 10, duration: '60s', exec: 'metricas' },
+    mover: { executor: 'constant-vus', vus: MOVERS, duration: '60s', exec: 'mover' },
+    metricas: { executor: 'constant-vus', vus: READERS, duration: '60s', exec: 'metricas' },
   },
   thresholds: {
     'http_req_failed{scenario:mover}': ['rate<0.01'],
@@ -44,7 +48,7 @@ const json = (cookie, i) => ({
 /** Para POST sin cuerpo: sin content-type (con JSON vacío la API responde 400, como debe). */
 const noBody = (cookie, i) => ({ headers: { cookie, 'x-forwarded-for': ip(i) } });
 
-/** Registra a las 50 personas, arma 10 tableros con 5 miembros y 20 tarjetas cada uno. */
+/** Registra a las 60 personas y arma 12 tableros con 5 miembros y 20 tarjetas cada uno. */
 export function setup() {
   const run = Date.now().toString(36);
   const users = [];
@@ -85,7 +89,7 @@ export function setup() {
 }
 
 export function mover(data) {
-  const u = data.users[(__VU - 1) % USERS];
+  const u = data.users[exec.vu.idInTest - 1]; // los ids de VU son únicos en toda la prueba
   const board = data.boards[Math.floor(u.i / PER_BOARD)];
   const card = board.cards[Math.floor(Math.random() * board.cards.length)];
   const columnId = board.cols[Math.floor(Math.random() * board.cols.length)];
@@ -103,7 +107,7 @@ export function mover(data) {
     const g = http.get(`${API}/api/boards/${board.id}`, Object.assign(json(u.cookie, u.i), { tags: { name: 'ver tablero' } }));
     check(g, { 'tablero → 200': (res) => res.status === 200 });
   }
-  sleep(0.6 + Math.random() * 0.4); // ~1 movimiento por segundo: bajo el tope de 120 escrituras/min
+  sleep(0.7 + Math.random() * 0.4); // ~1 movimiento por segundo: bajo el tope de 120 escrituras/min
 }
 
 let fallasMostradas = 0; // por VU: las primeras fallas van al log, para saber qué pasó
@@ -111,10 +115,8 @@ let fallasMostradas = 0; // por VU: las primeras fallas van al log, para saber q
 const metricsOk = http.expectedStatuses(200, 429);
 
 export function metricas(data) {
-  // Los ids de VU son globales (los de este escenario no parten en 1): se usa el módulo.
-  const b = (exec.vu.idInTest - 1) % data.boards.length;
-  const u = data.users[b * PER_BOARD]; // los dueños de los tableros
-  const board = data.boards[b];
+  const u = data.users[exec.vu.idInTest - 1];
+  const board = data.boards[Math.floor(u.i / PER_BOARD)];
   const r = http.get(
     `${API}/api/boards/${board.id}/metrics`,
     Object.assign(json(u.cookie, u.i), { responseCallback: metricsOk, tags: { name: 'métricas' } }),
