@@ -146,7 +146,8 @@ describe('S-02: el rate limit no se salta falseando la IP', () => {
         );
         statuses.push(r.status);
       }
-      expect(statuses).toEqual([401, 401, 429, 429]);
+      // 2 fallos libres; el 3.º activa la espera, así que el 4.º intento ya recibe 429.
+      expect(statuses).toEqual([401, 401, 401, 429]);
     } finally {
       await limited.app.close();
     }
