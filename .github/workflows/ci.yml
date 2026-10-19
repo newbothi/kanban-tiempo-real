@@ -293,13 +293,16 @@ jobs:
           set -e
           [ -f k6/k6-resumen.txt ] && sed 's/^/::notice title=k6::/' k6/k6-resumen.txt | head -5
           if [ "$code" != 0 ]; then
-            grep -iE "level=error|error|threshold|✗|crossed" k6/k6.log | head -15 | sed 's/^/::error title=k6::/'
+            grep -iE "level=(error|warning)|threshold|crossed" k6/k6.log | sort | uniq -c | sort -rn | head -12 | sed 's/^/::error title=k6::/'
             tail -25 k6/k6.log
           fi
           exit $code
       - name: Logs de los contenedores
         if: failure()
         run: |
+          # Los errores de la API (pino, nivel 50) como anotaciones: el mensaje y el código de error.
+          docker logs kanban-api 2>&1 | grep '"level":50' | jq -r '"\(.err.code // "") \(.err.message // .msg)"' 2>/dev/null \
+            | cut -c1-200 | sort | uniq -c | sort -rn | head -8 | sed 's/^/::error title=Log de la API::/' || true
           docker logs kanban-api 2>&1 | tail -80
           docker logs kanban-ml 2>&1 | tail -40
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -95,12 +95,18 @@ export function mover(data) {
     Object.assign(json(u.cookie, u.i), { tags: { name: 'mover tarjeta' } }),
   );
   check(r, { 'mover → 200': (res) => res.status === 200 });
+  if (r.status !== 200 && fallasMostradas < 3) {
+    fallasMostradas++;
+    console.warn(`mover → ${r.status}: ${String(r.body).slice(0, 200)}`);
+  }
   if (Math.random() < 0.2) {
     const g = http.get(`${API}/api/boards/${board.id}`, Object.assign(json(u.cookie, u.i), { tags: { name: 'ver tablero' } }));
     check(g, { 'tablero → 200': (res) => res.status === 200 });
   }
   sleep(0.6 + Math.random() * 0.4); // ~1 movimiento por segundo: bajo el tope de 120 escrituras/min
 }
+
+let fallasMostradas = 0; // por VU: las primeras fallas van al log, para saber qué pasó
 
 const metricsOk = http.expectedStatuses(200, 429);
 

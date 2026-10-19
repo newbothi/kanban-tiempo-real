@@ -131,8 +131,9 @@ export async function buildApp(opts: BuildOptions = {}) {
     const status = err.statusCode ?? 500;
     if (status >= 500) {
       req.log.error(err);
-      // Solo dentro de los tests (Vitest): el detalle ayuda a diagnosticar fallas en el CI.
-      const debug = process.env.VITEST ? { debug: `${(err as { code?: string }).code ?? ''} ${err.message}`.slice(0, 500) } : {};
+      // Solo dentro de los tests (Vitest, o el servidor de los E2E con NODE_ENV=test): el detalle
+      // ayuda a diagnosticar fallas en el CI. En producción el cliente nunca lo ve.
+      const debug = process.env.VITEST || process.env.NODE_ENV === 'test' ? { debug: `${(err as { code?: string }).code ?? ''} ${err.message}`.slice(0, 500) } : {};
       return reply.code(500).send({ error: 'InternalServerError', message: 'Error interno del servidor', ...debug });
     }
     return reply.code(status).send({ error: err.code ?? 'Error', message: err.message });
