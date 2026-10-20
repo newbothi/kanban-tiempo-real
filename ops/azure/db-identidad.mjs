@@ -43,12 +43,26 @@ const token = execFileSync(
   { encoding: 'utf8' },
 ).trim();
 
-const pool = await sql.connect({
-  server: a.servidor,
-  database: a.base,
-  options: { encrypt: true },
-  authentication: { type: 'azure-active-directory-access-token', options: { token } },
-});
+// Una regla de firewall recién creada tarda en aplicarse (a veces más de un minuto):
+// se reintenta la conexión en vez de fallar al primer timeout.
+async function connect() {
+  for (let i = 1; ; i++) {
+    try {
+      return await sql.connect({
+        server: a.servidor,
+        database: a.base,
+        connectionTimeout: 30_000,
+        options: { encrypt: true },
+        authentication: { type: 'azure-active-directory-access-token', options: { token } },
+      });
+    } catch (err) {
+      if (i >= 8 || !/ETIMEOUT|ESOCKET|ECONNRESET|firewall/i.test(`${err.code} ${err.message}`)) throw err;
+      console.log(`… la base todavía no responde (${err.code ?? err.message}); reintento ${i}/7 en 15 s`);
+      await new Promise((r) => setTimeout(r, 15_000));
+    }
+  }
+}
+const pool = await connect();
 
 try {
   const name = a.app;

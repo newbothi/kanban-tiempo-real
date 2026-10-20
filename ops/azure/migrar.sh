@@ -14,6 +14,7 @@ cerrar() { az sql server firewall-rule delete -g "$RG" -s "$SQL" -n CloudShellTe
 trap cerrar EXIT
 az sql server firewall-rule create -g "$RG" -s "$SQL" -n CloudShellTemp --start-ip-address "$IP" --end-ip-address "$IP" -o none
 echo "firewall: abierto solo para $IP"
+sleep 30 # la regla tarda en aplicarse
 
 DATABASE_URL="$(az keyvault secret show --vault-name "$KV" -n database-url-admin --query value -o tsv)" \
   npm run db:deploy -w @kanban/api
