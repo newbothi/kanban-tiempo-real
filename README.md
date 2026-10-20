@@ -23,8 +23,8 @@ Usuario demo: `demo@kanban.cl` / `demo1234`. También puedes crear tu cuenta y a
 - **Arrastrar y soltar** tarjetas entre columnas y dentro de una columna, con teclado accesible.
 - **Tiempo real:** crear, mover y eliminar tarjetas se refleja al instante en los demás navegadores.
 - **Presencia:** cuántas personas están viendo el tablero.
-- **Cuentas y sesiones** con JWT en cookie `httpOnly`.
-- **Tableros compartidos:** el dueño invita por correo y quita miembros. Quien pierde el acceso es expulsado del canal en vivo en ese mismo momento.
+- **Cuentas** con correo verificado y **sesiones revocables**: cerrar sesión en una pestaña la cierra en todas.
+- **Tableros compartidos:** el dueño invita por correo, la persona recibe un enlace y decide si acepta, y el dueño puede quitar miembros. Quien pierde el acceso es expulsado del canal en vivo en ese mismo momento.
 - **Actualizaciones optimistas:** la interfaz responde sin esperar al servidor y se revierte si la operación falla.
 - **Reconexión automática:** si se corta la conexión, el cliente se reconecta y se resincroniza.
 - **Métricas con ML (Python):** tendencia del ritmo del equipo, fecha estimada de entrega con simulación Monte Carlo, predicción del tiempo de cada tarjeta y detección de tarjetas estancadas. Se recalculan solas cuando alguien mueve una tarjeta.
@@ -37,10 +37,11 @@ Usuario demo: `demo@kanban.cl` / `demo1234`. También puedes crear tu cuenta y a
 | API | Node.js, Fastify 5, Socket.IO, Zod |
 | Datos | SQL Server, Prisma 7 (driver adapter `mssql`) |
 | Análisis (ML) | Python 3.13, FastAPI, scikit-learn, SciPy, NumPy |
-| Seguridad | JWT en cookie httpOnly, bcrypt, rate limiting |
-| Tests | Vitest (unitarios e integración), pytest, Playwright (E2E con dos navegadores) |
+| Seguridad | Sesión revocable en cookie `__Host-` httpOnly, bcrypt, límites por IP y por cuenta, CSP estricta |
+| Tests | Vitest (unitarios, integración y componentes), pytest + Hypothesis, Playwright con axe (Chromium, Firefox, WebKit y móvil), k6, OWASP ZAP |
 | Calidad | ESLint, Ruff, mypy, cobertura mínima, CodeQL, Bandit, gitleaks, npm audit, pip-audit, Trivy |
-| CI | GitHub Actions con SQL Server como servicio |
+| CI/CD | GitHub Actions con SQL Server como servicio; despliegue continuo a Azure por digest, con OIDC |
+| Infraestructura | Azure App Service, Azure SQL con identidad administrada (sin contraseña), Key Vault |
 
 ## Arquitectura
 
@@ -128,10 +129,13 @@ Los tests de Python verifican que los modelos **recuperan** relaciones conocidas
 
 ## Seguridad
 
-- **Sesión:** JWT en cookie `httpOnly` (inaccesible desde JavaScript, protege contra XSS), `SameSite=Lax` (protege contra CSRF) y `Secure` en producción.
-- **Contraseñas:** bcrypt con 12 rondas, limitadas a 72 bytes (lo que bcrypt realmente considera).
-- **Fuerza bruta:** rate limit de 10 intentos por minuto por IP en login y registro.
-- **Sin enumeración de usuarios:** si el correo no existe, el login responde con el mismo mensaje y en el mismo tiempo que con una contraseña incorrecta.
+El proyecto pasó por una auditoría de seguridad con **26 hallazgos** (5 altos, 8 medios y 13 bajos), todos corregidos y con una prueba que impide que vuelvan. El detalle está en el [modelo de amenazas](docs/modelo-de-amenazas.md) y en la [matriz de trazabilidad](docs/plan-de-pruebas.md#matriz-de-trazabilidad). Para reportar una vulnerabilidad: [SECURITY.md](SECURITY.md).
+
+- **Sesión:** JWT en cookie `__Host-` `httpOnly`, `Secure` y `SameSite=Lax`. Se puede **revocar**: cerrar sesión invalida el token en todas partes y corta el WebSocket en ese momento.
+- **Contraseñas:** bcrypt con 12 rondas, límite de 72 **bytes** (lo que bcrypt realmente considera) y rechazo de contraseñas comunes.
+- **Fuerza bruta:** 10 intentos por minuto por IP (la real, no la que declara el cliente) y, además, un freno por cuenta con esperas crecientes.
+- **Sin enumeración de usuarios:** el login y las invitaciones responden lo mismo exista o no la cuenta.
+- **Cuentas verificadas:** hay que confirmar el correo para ver y aceptar invitaciones. Las invitaciones quedan pendientes hasta que la persona las acepta.
 - **Autorización por tablero:**
 
   | Acción | Dueño | Miembro | No miembro |
@@ -141,17 +145,23 @@ Los tests de Python verifican que los modelos **recuperan** relaciones conocidas
   | Eliminar el tablero | ✔ | 403 | 404 |
 
   A quien no es miembro se le responde **404 y no 403**, para no revelar que el tablero existe. También se valida que una tarjeta no pueda moverse a una columna de **otro** tablero.
-- **Tiempo real:** el handshake de Socket.IO exige una sesión válida, y `board:join` exige ser miembro. Al quitar a alguien, se sacan de la room **todas sus pestañas abiertas**.
-- **Dependencias:** `npm audit` y `pip-audit` quedan en cero y el CI falla si aparece cualquier vulnerabilidad conocida. Las dependencias de Python están fijadas con hash, y las actions de GitHub y las imágenes base, por SHA o digest. Dependabot propone las actualizaciones cada semana.
+- **Tiempo real:** el handshake de Socket.IO exige una sesión válida y el mismo origen, y `board:join` exige ser miembro. Al quitar a alguien, se sacan de la room **todas sus pestañas abiertas**.
+- **Uso razonable:** cuotas por usuario y por tablero, límite de eventos por socket y caché de métricas, para que nadie agote la CPU del plan gratuito.
+- **Cabeceras:** CSP sin `unsafe-inline` ni `eval`, HSTS, `frame-ancestors`, `nosniff`, COEP y Permissions-Policy.
+- **Infraestructura:** la app entra a la base con su **identidad administrada**, sin contraseña y solo con permisos de datos. Los secretos viven en **Key Vault**; si uno no se puede leer, la app no arranca. El firewall de SQL y el servicio ML solo aceptan las IPs de salida de la app.
+- **Cuenta demo:** pública pero restringida (no invita, no expulsa, no borra tableros) y se reinicia cada día.
 
 ## Tests
 
+**346 pruebas automáticas** en seis suites, más un smoke test, un escaneo de seguridad y una prueba de carga contra las imágenes Docker reales. La estrategia completa, los criterios para fusionar y qué prueba cubre cada hallazgo están en el [plan de pruebas](docs/plan-de-pruebas.md).
+
 | Suite | Qué cubre | Comando |
 |---|---|---|
-| Unitarios | Orden, movimientos, schemas, límites y validación de respuestas del ML | `npm run test:unit` |
-| Integración | Auth, permisos, invitaciones, eventos del socket, historial y métricas, contra SQL Server real | `npm run test:api` |
-| Python | Cada análisis contra datos con propiedades conocidas, la API de FastAPI y los hallazgos de seguridad | `python -m pytest` (en `apps/ml`) |
-| E2E | Dos usuarios en navegadores separados: invitar, arrastrar, sincronizar, ver métricas y expulsar | `npm run test:e2e` |
+| Unitarios y de componentes | Orden, schemas, contraseñas, límites, IP del cliente y configuración de arranque; las pantallas del front con la API y el socket simulados | `npm run test:unit` |
+| Integración | Auth, permisos, invitaciones, verificación, demo, socket, posiciones y métricas, contra SQL Server real | `npm run test:api` |
+| Python | Cada análisis contra datos con propiedades conocidas, la API, los topes y propiedades con Hypothesis | `python -m pytest` (en `apps/ml`) |
+| E2E | Dos usuarios en navegadores separados, en Chromium, Firefox, WebKit y móvil, con axe en cada pantalla | `npm run test:e2e` |
+| Imágenes en marcha | Smoke test, OWASP ZAP y k6 (50 personas moviendo tarjetas a la vez) | job `stack` del CI |
 
 Los tests de integración comprueban, por ejemplo, que un usuario sin permisos no pueda **mover, renombrar ni borrar** tarjetas ajenas, que no pueda escuchar eventos de un tablero ajeno, y que deje de recibirlos apenas lo quitan.
 
@@ -168,6 +178,8 @@ Un PR no se puede fusionar si falla cualquiera de estas revisiones:
 | Dependencias | `npm audit` · `pip-audit` | hay una vulnerabilidad conocida |
 | Secretos | gitleaks, sobre todos los commits del PR | aparece una clave o contraseña |
 | Imágenes | Trivy | hay una vulnerabilidad HIGH o CRITICAL con arreglo disponible |
+| E2E | Playwright (4 navegadores, sin reintentos) + axe | falla un flujo, hay una violación de CSP o un problema de accesibilidad serio |
+| Imágenes en marcha | Smoke test · OWASP ZAP · k6 | falla el flujo completo, falta una cabecera o la carga supera los umbrales |
 
 Además, cada imagen publicada lleva su SBOM (CycloneDX) como artefacto del CI y una procedencia (*provenance*) firmada por GitHub.
 
@@ -256,21 +268,23 @@ En el hosting hay que definir `NODE_ENV=production`, `DATABASE_URL` y `JWT_SECRE
 
 ```mermaid
 flowchart LR
-  P[push a main] --> CI[GitHub Actions<br/>tests]
-  CI -- todo verde --> IMG[Imagen Docker<br/>ghcr.io/newbothi/kanban-tiempo-real]
-  CI -- todo verde --> IMGML[Imagen Docker<br/>ghcr.io/newbothi/kanban-tiempo-real-ml]
-  IMG --> AS[Azure App Service<br/>web + API + WebSocket]
-  IMGML --> ASML[Azure App Service<br/>servicio ML]
-  AS --> SQL[(Azure SQL Database)]
-  AS -- "HTTPS + ML_TOKEN" --> ASML
+  P[push a main] --> CI[GitHub Actions<br/>tests, escaneos e<br/>imágenes en marcha]
+  CI -- todo verde --> GHCR[GHCR<br/>imágenes con SBOM<br/>y procedencia firmada]
+  GHCR -- "OIDC, por digest" --> AS[App Service<br/>web + API + WebSocket]
+  GHCR -- "OIDC, por digest" --> ASML[App Service<br/>servicio ML]
+  AS -- "identidad administrada" --> SQL[(Azure SQL)]
+  AS -- "HTTPS + ML_TOKEN<br/>solo IPs de la app" --> ASML
+  KV[(Key Vault)] -. secretos .-> AS
+  KV -. secretos .-> ASML
 ```
 
-- El `Dockerfile` es multi-etapa: compila el front, genera Prisma y deja solo las dependencias de producción. Corre como usuario sin privilegios.
-- El CI publica la imagen **solo si pasan todos los tests**.
-- Azure App Service ejecuta el contenedor, que sirve la web, la API y el WebSocket en un único origen, así que no hace falta CORS y la cookie `Secure` funciona sobre HTTPS.
-- Variables de la app principal: `DATABASE_URL`, `JWT_SECRET`, `NODE_ENV=production`, `WEBSITES_PORT=3000`, `ML_URL` y `ML_TOKEN`.
-- Variables del servicio ML: `ML_TOKEN` (el mismo valor) y `WEBSITES_PORT=8000`.
+- **Imágenes mínimas:** el `Dockerfile` es multi-etapa y la imagen final solo lleva lo que ejecuta: sin npm, pip, tests ni seed, con parches del sistema y un usuario sin privilegios.
+- **Despliegue continuo:** cada push a `main` con todo en verde publica las imágenes y las despliega. GitHub entra a Azure con **OIDC**, sin secretos guardados, y fija cada app a un **digest** exacto (nunca `:latest`). El job espera a que `/health` responda con el commit nuevo y consulte la base.
+- **Sin contraseñas en la app:** se conecta a SQL con su identidad administrada y lee `JWT_SECRET`, `ML_TOKEN` y la conexión de correo desde Key Vault.
+- **Un único origen:** el contenedor sirve la web, la API y el WebSocket, así que no hace falta CORS y la cookie `Secure` funciona sobre HTTPS.
 - Ante errores internos, el cliente recibe un mensaje genérico. El detalle queda solo en el log.
+
+Cómo se opera (migraciones, rotar secretos, volver atrás): [ops/azure/README.md](ops/azure/README.md).
 
 ## Estructura
 
@@ -293,8 +307,12 @@ apps/web/
   src/realtime/        socket y suscripción a eventos
   src/components/      tablero, columnas, tarjetas, login, miembros
   src/components/metrics/  panel de métricas y gráficos SVG
+  test/                tests de componentes (Vitest + Testing Library)
   e2e/                 tests de Playwright
 packages/shared/       contrato compartido + tests unitarios
+qa/                    smoke test de las imágenes, reglas de ZAP y escenario de k6
+ops/azure/             scripts y guía de operación en Azure
+docs/                  modelo de amenazas, plan de pruebas y capturas
 ```
 
 ## Licencia
