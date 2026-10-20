@@ -53,6 +53,13 @@ export default tseslint.config(
     },
   },
 
+  // Scripts de operación (Node, se corren desde Cloud Shell)
+  {
+    files: ['ops/**/*.mjs'],
+    languageOptions: { globals: globals.node },
+    rules: { 'no-console': 'off' },
+  },
+
   // Scripts de k6: corren en el runtime de k6, que define estas globales.
   {
     files: ['qa/k6/**/*.js'],

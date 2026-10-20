@@ -20,8 +20,11 @@ RUN DATABASE_URL="sqlserver://build:1433;database=build" npm run db:generate -w 
 
 # ---------- 2) Runtime: solo lo necesario para ejecutar ----------
 FROM node:24-bookworm-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5
+# Commit del que sale la imagen (el CI lo pasa con --build-arg); /health lo informa.
+ARG APP_VERSION=dev
 ENV NODE_ENV=production \
-    PORT=3000
+    PORT=3000 \
+    APP_VERSION=$APP_VERSION
 WORKDIR /app
 # Parches de seguridad del sistema, y fuera npm/npx/corepack: la imagen solo ejecuta `node`
 # y el npm que trae la imagen base arrastra sus propias dependencias vulnerables (Trivy).
