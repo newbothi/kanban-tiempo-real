@@ -53,6 +53,12 @@ export default tseslint.config(
     },
   },
 
+  // Scripts de k6: corren en el runtime de k6, que define estas globales.
+  {
+    files: ['qa/k6/**/*.js'],
+    languageOptions: { globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly', console: 'readonly' } },
+  },
+
   // Tests y scripts: se permite console, aserciones no nulas y `any` para las
   // respuestas JSON que cada test revisa a mano.
   {

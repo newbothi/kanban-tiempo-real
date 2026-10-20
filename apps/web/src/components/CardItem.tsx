@@ -19,7 +19,7 @@ interface Props {
 }
 
 export function CardItem({ card, insight, onDelete, overlay = false }: Props) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({
     id: card.id,
     data: { type: 'card', columnId: card.columnId },
     disabled: overlay,
@@ -35,10 +35,16 @@ export function CardItem({ card, insight, onDelete, overlay = false }: Props) {
       ref={overlay ? undefined : setNodeRef}
       style={overlay ? undefined : style}
       className={`card${isDragging ? ' card--ghost' : ''}${overlay ? ' card--overlay' : ''}`}
-      {...(overlay ? {} : attributes)}
-      {...(overlay ? {} : listeners)}
     >
-      <span className="card__body">
+      {/* Lo que se arrastra (y se enfoca con el teclado) es el cuerpo de la tarjeta. El botón de
+          borrar queda al lado y no dentro: un botón dentro de otro elemento interactivo es un
+          problema de accesibilidad (axe: nested-interactive). */}
+      <span
+        ref={overlay ? undefined : setActivatorNodeRef}
+        className="card__body"
+        {...(overlay ? {} : attributes)}
+        {...(overlay ? {} : listeners)}
+      >
         <span className="card__title">{card.title}</span>
         {insight && (insight.stale || insight.overdue || insight.remainingDays != null) && (
           <span className="card__insights">
@@ -67,8 +73,6 @@ export function CardItem({ card, insight, onDelete, overlay = false }: Props) {
         <button
           className="card__delete"
           aria-label={`Eliminar ${card.title}`}
-          // evita que el clic inicie un arrastre
-          onPointerDown={(e) => e.stopPropagation()}
           onClick={() => onDelete(card.id)}
         >
           ×

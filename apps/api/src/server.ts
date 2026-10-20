@@ -13,7 +13,11 @@ if (process.env.NODE_ENV === 'production' && (process.env.ML_TOKEN ?? '').length
 const { buildApp } = await import('./app');
 const { prisma } = await import('./db');
 
-const app = await buildApp();
+// Solo para los E2E (NODE_ENV=test): varios navegadores registran usuarios desde la misma IP
+// en el mismo minuto. En producción NODE_ENV=production y esta variable se ignora.
+const e2eAuthLimit = process.env.NODE_ENV === 'test' ? Number(process.env.E2E_AUTH_RATE_LIMIT) || undefined : undefined;
+
+const app = await buildApp({ authRateLimit: e2eAuthLimit });
 
 const close = async () => {
   await app.close();

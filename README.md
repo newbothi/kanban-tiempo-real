@@ -191,6 +191,10 @@ USE kanban;      CREATE USER kanban_app FOR LOGIN kanban_app; ALTER ROLE db_owne
 GO
 USE kanban_test; CREATE USER kanban_app FOR LOGIN kanban_app; ALTER ROLE db_owner ADD MEMBER kanban_app;
 GO
+-- Como Azure SQL: las lecturas no bloquean a las escrituras (evita deadlocks con mucha concurrencia).
+ALTER DATABASE kanban      SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
+ALTER DATABASE kanban_test SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE;
+GO
 ```
 
 ### 2. Instalar y configurar

@@ -5,7 +5,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import fastifyStatic from '@fastify/static';
 import { SOCKET_ID_HEADER } from '@kanban/shared';
-import { prisma } from './db';
+import { isConflict, prisma } from './db';
 import { authPlugin } from './auth/plugin';
 import { attachRealtime } from './realtime';
 import { boardRoutes } from './routes/boards';
@@ -104,7 +104,13 @@ export async function buildApp(opts: BuildOptions = {}) {
     // HSTS: el navegador recuerda usar solo HTTPS durante un año.
     strictTransportSecurity: production ? { maxAge: 31_536_000, includeSubDomains: true } : false,
     referrerPolicy: { policy: 'no-referrer' },
-    crossOriginEmbedderPolicy: false,
+    // Todo lo que carga la app es del mismo origen, así que se puede exigir (ZAP 90004).
+    crossOriginEmbedderPolicy: { policy: 'require-corp' },
+  });
+  // La app no usa cámara, micrófono, ubicación ni pagos: se desactivan para cualquier
+  // contenido que lograra colarse en la página (ZAP 10063).
+  app.addHook('onSend', async (_req, reply) => {
+    reply.header('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()');
   });
 
   // CORS solo si la web vive en otro origen (desarrollo con Vite). En producción todo
@@ -122,11 +128,21 @@ export async function buildApp(opts: BuildOptions = {}) {
   // Errores inesperados: el detalle va al log, nunca al cliente
   // (los mensajes de Prisma incluyen rutas de archivos y partes de la consulta).
   app.setErrorHandler((err: FastifyError, req, reply) => {
+    // Un conflicto de concurrencia que sobrevivió a los reintentos: no es un bug del cliente
+    // ni del servidor, es carga. Se responde 503 con Retry-After para que vuelva a intentar.
+    if (isConflict(err)) {
+      req.log.warn({ err }, 'conflicto de concurrencia tras reintentos');
+      return reply.code(503).header('retry-after', '1').send({
+        error: 'ServiceUnavailable',
+        message: 'El servidor está ocupado; intenta de nuevo en un momento',
+      });
+    }
     const status = err.statusCode ?? 500;
     if (status >= 500) {
       req.log.error(err);
-      // Solo dentro de los tests (Vitest): el detalle ayuda a diagnosticar fallas en el CI.
-      const debug = process.env.VITEST ? { debug: `${(err as { code?: string }).code ?? ''} ${err.message}`.slice(0, 500) } : {};
+      // Solo dentro de los tests (Vitest, o el servidor de los E2E con NODE_ENV=test): el detalle
+      // ayuda a diagnosticar fallas en el CI. En producción el cliente nunca lo ve.
+      const debug = process.env.VITEST || process.env.NODE_ENV === 'test' ? { debug: `${(err as { code?: string }).code ?? ''} ${err.message}`.slice(0, 500) } : {};
       return reply.code(500).send({ error: 'InternalServerError', message: 'Error interno del servidor', ...debug });
     }
     return reply.code(status).send({ error: err.code ?? 'Error', message: err.message });

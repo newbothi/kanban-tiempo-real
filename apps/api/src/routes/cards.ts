@@ -9,7 +9,7 @@ import {
   renameCardSchema,
   type CardDto,
 } from '@kanban/shared';
-import { prisma } from '../db';
+import { prisma, retryOnConflict } from '../db';
 import { limitWrites, notFound, parseOr400, rejectMalformedIds } from '../http';
 import { boardIdOfCard, boardIdOfColumn, requireBoardRole } from '../auth/access';
 import { notify } from '../realtime';
@@ -29,25 +29,6 @@ type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 async function lockColumns(tx: Tx, columnIds: string[]) {
   for (const id of [...new Set(columnIds)].sort()) {
     await tx.$queryRaw`SELECT [id] FROM [dbo].[Column] WITH (UPDLOCK, HOLDLOCK) WHERE [id] = ${id}`;
-  }
-}
-
-/**
- * Red de seguridad: si aun así SQL Server aborta una transacción por deadlock (error 1205;
- * Prisma: P2034) o una transacción no consigue conexión a tiempo (P2028), se reintenta
- * unas veces en vez de responder 500.
- */
-async function withRetry<T>(run: () => Promise<T>, attempts = 5): Promise<T> {
-  for (let i = 1; ; i++) {
-    try {
-      return await run();
-    } catch (err) {
-      const e = err as { code?: string; message?: string };
-      const conflict =
-        e.code === 'P2034' || e.code === 'P2028' || /deadlock|1205|Unable to start a transaction/i.test(e.message ?? '');
-      if (!conflict || i >= attempts) throw err;
-      await new Promise((r) => setTimeout(r, 20 * i + Math.random() * 30));
-    }
   }
 }
 
@@ -112,7 +93,7 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
     }
 
     let rebalanced = false;
-    const card = await withRetry(() => prisma.$transaction(async (tx: Tx) => {
+    const card = await retryOnConflict(() => prisma.$transaction(async (tx: Tx) => {
       await lockColumns(tx, [input.columnId]);
       const lastKey = async () =>
         (
@@ -177,7 +158,7 @@ export async function cardRoutes(app: FastifyInstance, opts: RouteOptions) {
     if (!(await requireBoardRole(reply, boardId, req.user.sub))) return;
 
     let rebalanced = false;
-    const result = await withRetry(() => prisma.$transaction(
+    const result = await retryOnConflict(() => prisma.$transaction(
       async (tx) => {
       // La columna destino debe pertenecer al MISMO tablero
       // (si no, alguien podría mover tarjetas a un tablero ajeno).

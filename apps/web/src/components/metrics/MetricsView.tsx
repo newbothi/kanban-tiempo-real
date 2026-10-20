@@ -48,7 +48,12 @@ export function MetricsView({ board, data, error, isFetching }: Props) {
     );
 
   return (
-    <div className={`metrics${isFetching ? ' is-refreshing' : ''}`}>
+    <div className="metrics" aria-busy={isFetching}>
+      {isFetching && (
+        <span className="metrics__refreshing" role="status">
+          Actualizando el análisis…
+        </span>
+      )}
       {data.insights.length > 0 && (
         <section className="metrics-card insights">
           <h3>Conclusiones</h3>

@@ -94,6 +94,7 @@ export function ThroughputChart({ points }: { points: MlWeekPoint[] }) {
                 width={band}
                 height={plotH}
                 tabIndex={0}
+                role="img"
                 aria-label={`Semana del ${fmtShort(p.weekStart)}: ${p.done} terminadas`}
                 onPointerEnter={() => setHover(i)}
                 onPointerLeave={() => setHover(null)}

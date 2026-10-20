@@ -75,7 +75,8 @@ export function ForecastChart({ forecast }: { forecast: MlForecast }) {
               width={band}
               height={plotH}
               tabIndex={0}
-              aria-label={`${b.weeks} semanas: ${fmtPct(b.probability)}`}
+              role="img"
+              aria-label={`${b.weeks} ${b.weeks === 1 ? 'semana' : 'semanas'}: ${fmtPct(b.probability)}`}
               onPointerEnter={() => setHover(b.weeks)}
               onPointerLeave={() => setHover(null)}
               onFocus={() => setHover(b.weeks)}

@@ -43,7 +43,17 @@ jobs:
         run: npm run test:unit -w @kanban/api
       - name: Tests del paquete compartido (cobertura mínima 80 %)
         run: npm run test:coverage -w @kanban/shared
+      - name: Tests de componentes del front (cobertura mínima 75 %)
+        run: npm run test:coverage -w @kanban/web
       - run: npm run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: cobertura-web-y-compartido
+          path: |
+            apps/web/coverage
+            packages/shared/coverage
+          retention-days: 14
 
   ml:
     name: Servicio ML (Python)
@@ -68,8 +78,10 @@ jobs:
         run: mypy
       - name: Bandit (análisis de seguridad)
         run: bandit -c pyproject.toml -r app
-      - name: Tests (cobertura mínima 80 %)
+      - name: Tests, incluidos los de propiedades con Hypothesis (cobertura mínima 80 %)
         run: python -m pytest -q --cov --cov-report=term --cov-report=xml
+        env:
+          HYPOTHESIS_PROFILE: ci # semilla fija y más ejemplos: el CI no puede fallar "a veces"
       - name: El contrato (OpenAPI → TypeScript) está al día
         working-directory: .
         run: |
@@ -128,11 +140,12 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Como en Azure SQL: READ_COMMITTED_SNAPSHOT activado (las lecturas no bloquean escrituras).
       - name: Crear base de prueba
         run: >
           docker exec ${{ job.services.mssql.id }}
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$MSSQL_SA_PASSWORD" -C
-          -Q "IF DB_ID('kanban_test') IS NULL CREATE DATABASE kanban_test"
+          -Q "IF DB_ID('kanban_test') IS NULL CREATE DATABASE kanban_test; ALTER DATABASE kanban_test SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
       - run: npm run db:generate -w @kanban/api
       - name: Tests de la API, unitarios + integración (cobertura mínima 80 %)
         run: npm run test:coverage -w @kanban/api
@@ -162,30 +175,151 @@ jobs:
           pip install --require-hashes -r requirements.txt
           nohup python -m uvicorn app.main:app --port 8000 > ml.log 2>&1 &
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8000/health && break; sleep 1; done
-      - run: npx playwright install --with-deps chromium
+      - run: npx playwright install --with-deps chromium firefox webkit
         working-directory: apps/web
-      - name: Tests E2E (Playwright, dos usuarios)
+      - name: Tests E2E (Chromium, Firefox, WebKit y móvil, con axe)
         run: npm run test:e2e
         env:
           ML_URL: http://127.0.0.1:8000
           E2E_EXPECT_ML: '1'
+      - name: Resumen de los E2E
+        if: always()
+        working-directory: apps/web
+        run: |
+          f=test-results/e2e.json
+          [ -f "$f" ] && node -e "
+            const r = require('./$f'); const s = r.stats;
+            console.log('::notice title=E2E::' + s.expected + ' OK · ' + s.unexpected + ' fallidos · ' + s.flaky + ' inestables · ' + s.skipped + ' omitidos');
+          " || true
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: cobertura-api
           path: apps/api/coverage
           retention-days: 14
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure()
+      - name: Reporte de Playwright (incluye los resultados de axe de cada pantalla)
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
         with:
-          name: playwright-report
-          path: apps/web/playwright-report
-          retention-days: 7
+          name: playwright-y-axe
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+          retention-days: 14
+
+  stack:
+    name: Imágenes en marcha (smoke, ZAP y k6)
+    # Las dos imágenes, tal como se publican, contra un SQL Server real. Si algo falla aquí,
+    # el job que publica (docker) no corre. Corre en paralelo con los E2E.
+    needs: [check, ml, dependencies]
+    runs-on: ubuntu-24.04
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          MSSQL_SA_PASSWORD: Kanban_CI_2026!
+        ports: ['1433:1433']
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Kanban_CI_2026! -C -Q 'SELECT 1'"
+          --health-interval 10s --health-timeout 5s --health-retries 12
+    env:
+      STACK_DB_URL: sqlserver://localhost:1433;database=kanban_stack;user=sa;password=Kanban_CI_2026!;encrypt=true;trustServerCertificate=true
+      # Fijadas por digest (S-23). Para actualizarlas: el paso «Digests» del CI muestra los actuales.
+      ZAP_IMAGE: ghcr.io/zaproxy/zaproxy@sha256:5ccfff9a411743ab2615136a2edd7416bec9ce41572fa94e935df38c14adb2b6
+      K6_IMAGE: grafana/k6@sha256:e66db15b860113878fa74670e31f5e274830b7b6e42c8bff28b2f2d86a257603
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # Como en Azure SQL: READ_COMMITTED_SNAPSHOT activado (las lecturas no bloquean escrituras).
+      - name: Base de datos y migraciones (como en Azure, desde fuera del contenedor)
+        run: |
+          docker exec ${{ job.services.mssql.id }} /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa \
+            -P "$MSSQL_SA_PASSWORD" -C -Q "IF DB_ID('kanban_stack') IS NULL CREATE DATABASE kanban_stack; ALTER DATABASE kanban_stack SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE"
+          DATABASE_URL="$STACK_DB_URL" npm run db:deploy -w @kanban/api
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Construir la imagen de la API
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          load: true
+          tags: kanban-api:ci
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+      - name: Construir la imagen del ML
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: apps/ml
+          load: true
+          tags: kanban-ml:ci
+          cache-from: type=gha,scope=ml
+          cache-to: type=gha,mode=max,scope=ml
+      - name: Levantar las dos imágenes (modo producción)
+        run: |
+          ML_TOKEN=$(openssl rand -hex 24); JWT_SECRET=$(openssl rand -base64 48)
+          echo "::add-mask::$ML_TOKEN"; echo "::add-mask::$JWT_SECRET"
+          docker run -d --name kanban-ml --network host -e ML_TOKEN="$ML_TOKEN" -e PORT=8000 kanban-ml:ci
+          docker run -d --name kanban-api --network host -e NODE_ENV=production -e PORT=3000 \
+            -e DATABASE_URL="$STACK_DB_URL" -e JWT_SECRET="$JWT_SECRET" \
+            -e ML_URL=http://127.0.0.1:8000 -e ML_TOKEN="$ML_TOKEN" kanban-api:ci
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:3000/health >/dev/null && curl -sf http://127.0.0.1:8000/health >/dev/null && exit 0
+            sleep 2
+          done
+          echo "::error::Las imágenes no quedaron sanas en 2 minutos"; exit 1
+      - name: Smoke test de las dos imágenes
+        run: qa/smoke.sh
+      - name: ZAP baseline (escaneo pasivo de seguridad)
+        run: |
+          mkdir -p zap && cp qa/zap/reglas.tsv zap/ && chmod -R 777 zap
+          set +e
+          docker run --rm --network host -v "$PWD/zap:/zap/wrk:rw" "$ZAP_IMAGE" \
+            zap-baseline.py -t http://127.0.0.1:3000 -c reglas.tsv -r zap.html -J zap.json -I -m 2
+          code=$?
+          set -e
+          [ -f zap/zap.json ] && jq -r '.site[].alerts[] | "::warning title=ZAP \(.riskdesc)::\(.name) (\(.pluginid)) en \(.instances | length) URL"' zap/zap.json || true
+          exit $code
+      - name: k6 (50 personas moviendo tarjetas + carga de /metrics)
+        run: |
+          mkdir -p k6 && chmod 777 k6
+          set +e
+          docker run --rm --network host -v "$PWD/qa/k6:/scripts:ro" -v "$PWD/k6:/out" -w /out \
+            -e API_URL=http://127.0.0.1:3000 "$K6_IMAGE" run --quiet --no-color /scripts/carga.js > k6/k6.log 2>&1
+          code=$?
+          set -e
+          [ -f k6/k6-resumen.txt ] && sed 's/^/::notice title=k6::/' k6/k6-resumen.txt | head -5
+          if [ "$code" != 0 ]; then
+            grep -iE "level=(error|warning)|threshold|crossed" k6/k6.log | sort | uniq -c | sort -rn | head -12 | sed 's/^/::error title=k6::/'
+            tail -25 k6/k6.log
+          fi
+          exit $code
+      - name: Logs de los contenedores
+        if: failure()
+        run: |
+          # Los errores de la API (pino, nivel 50) como anotaciones: el mensaje y el código de error.
+          docker logs kanban-api 2>&1 | grep '"level":50' | jq -r '"\(.err.code // "") \(.err.message // .msg)"' 2>/dev/null \
+            | cut -c1-200 | sort | uniq -c | sort -rn | head -8 | sed 's/^/::error title=Log de la API::/' || true
+          docker logs kanban-api 2>&1 | tail -80
+          docker logs kanban-ml 2>&1 | tail -40
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: zap-y-k6
+          path: |
+            zap
+            k6
+          retention-days: 14
 
   docker:
     name: Imagen Docker (${{ matrix.name }})
     # En los PR: construye y escanea. En main, y solo si TODO lo anterior pasó: además publica.
-    needs: [check, ml, dependencies, integration]
+    needs: [check, ml, dependencies, integration, stack]
     runs-on: ubuntu-24.04
     permissions:
       contents: read

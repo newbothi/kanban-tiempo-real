@@ -5,7 +5,7 @@ import jwt from '@fastify/jwt';
 import rateLimit from '@fastify/rate-limit';
 import bcrypt from 'bcryptjs';
 import { loginSchema, registerSchema, type UserDto } from '@kanban/shared';
-import { prisma } from '../db';
+import { prisma, retryOnConflict } from '../db';
 import { TOKEN_FORMAT, clientIp, hashToken, newToken, parseOr400, publicUrl } from '../http';
 import { LoginThrottle, type ThrottleOptions } from './throttle';
 import { demoEmail, isSessionCurrent, sessionCookieName, type SessionClaims } from './session';
@@ -127,14 +127,21 @@ export const authPlugin = fp(async (app: FastifyInstance, opts: AuthOptions) => 
       return reply.code(409).send({ error: 'Conflict', message: 'Ese correo ya está registrado' });
     }
 
-    const user = await prisma.user.create({
-      data: {
-        email: input.email,
-        name: input.name,
-        passwordHash: await bcrypt.hash(input.password, BCRYPT_ROUNDS),
-      },
-      select: userSelect,
-    });
+    const passwordHash = await bcrypt.hash(input.password, BCRYPT_ROUNDS);
+    let user;
+    try {
+      // Con varios registros a la vez, SQL Server puede elegir este INSERT como víctima de
+      // un deadlock (P2034): se reintenta (lo encontró el workflow de estabilidad).
+      user = await retryOnConflict(() =>
+        prisma.user.create({ data: { email: input.email, name: input.name, passwordHash }, select: userSelect }),
+      );
+    } catch (err) {
+      // Dos registros simultáneos con el mismo correo: el segundo choca con el índice único.
+      if ((err as { code?: string }).code === 'P2002') {
+        return reply.code(409).send({ error: 'Conflict', message: 'Ese correo ya está registrado' });
+      }
+      throw err;
+    }
     await sendVerification(req, user);
 
     setSessionCookie(reply, await reply.jwtSign({ sub: user.id, sv: 0 }));
