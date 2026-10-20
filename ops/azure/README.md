@@ -102,6 +102,13 @@ rm -f "$f" "$g"
 - **SQL:** una regla de firewall por cada IP de salida posible de la app (`app-salida-N`). No hay regla «Permitir servicios de Azure».
 - **Servicio ML:** restricciones de acceso que solo admiten esas mismas IPs (`app-N`); el resto recibe 403.
 
+Para comprobarlo desde Cloud Shell: el ML debe responder `403` y la app, `200`.
+
+```bash
+curl -s -o /dev/null -w 'ML: %{http_code}\n' https://kanban-newbothi-ml.azurewebsites.net/health
+curl -s -o /dev/null -w 'app: %{http_code}\n' https://kanban-newbothi.azurewebsites.net/health
+```
+
 Si Azure cambia las IPs de salida de la app (por ejemplo, al cambiar de plan), hay que regenerar las dos listas. Las IPs actuales:
 
 ```bash
