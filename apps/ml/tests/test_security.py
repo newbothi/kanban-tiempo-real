@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from app.analysis import forecast
 from app.analysis.timeline import build, wip_at
-from app.main import create_app
+from app.main import create_app, unresolved_key_vault_references
 from app.schemas import MAX_CARDS, MAX_SIMULATIONS, AnalyzeRequest
 from app.service import analyze
 from tests.factory import COLUMNS, NOW, BoardBuilder, steady_board
@@ -47,6 +47,29 @@ def test_s06_produccion_no_arranca_con_token_corto(monkeypatch):
     monkeypatch.setenv("ML_TOKEN", "corto")
     with pytest.raises(RuntimeError, match="ML_TOKEN"), TestClient(create_app()):
         pass
+
+
+KV_REF = "@Microsoft.KeyVault(VaultName=kv-kanban-newbothi;SecretName=ml-token)"
+
+
+def test_s13_no_arranca_con_referencia_de_key_vault_sin_resolver(monkeypatch):
+    monkeypatch.setenv("ML_ENV", "production")
+    monkeypatch.setenv("ML_TOKEN", KV_REF)
+    assert len(KV_REF) > 32  # pasaría el control de longitud
+    with pytest.raises(RuntimeError, match="Key Vault no resolvió: ML_TOKEN"), TestClient(create_app()):
+        pass
+
+
+def test_s13_la_referencia_se_rechaza_tambien_fuera_de_produccion(monkeypatch):
+    monkeypatch.delenv("ML_ENV", raising=False)
+    monkeypatch.setenv("ML_TOKEN", "  @microsoft.keyvault(SecretUri=https://x.vault.azure.net/secrets/y)")
+    with pytest.raises(RuntimeError, match="ML_TOKEN"), TestClient(create_app()):
+        pass
+
+
+def test_s13_lista_solo_nombres_ordenados():
+    env = {"ML_TOKEN": KV_REF, "OTRA": KV_REF, "ML_ENV": "production", "BIEN": TOKEN}
+    assert unresolved_key_vault_references(env) == ["ML_TOKEN", "OTRA"]
 
 
 def test_s06_produccion_exige_el_token(prod_env):

@@ -1,14 +1,13 @@
 import { config } from 'dotenv';
+import { checkStartupConfig } from './startup';
 
 // Carga apps/api/.env si existe (en un hosting, las variables vienen del panel y tienen prioridad).
 // ENV_FILE permite usar otro archivo, p. ej. .env.test en los tests E2E.
 config({ path: process.env.ENV_FILE ?? '.env', quiet: true });
 
-// En producción, el servicio ML exige un token: sin él, las métricas fallarían siempre.
-// Mejor no arrancar y que el error se vea en el log del despliegue (S-06).
-if (process.env.NODE_ENV === 'production' && (process.env.ML_TOKEN ?? '').length < 32) {
-  throw new Error('ML_TOKEN es obligatorio en producción (mínimo 32 caracteres, el mismo del servicio ML)');
-}
+// Sin token del ML o con un secreto de Key Vault sin resolver, mejor no arrancar
+// y que el error se vea en el log del despliegue (S-06, S-13).
+checkStartupConfig();
 
 const { buildApp } = await import('./app');
 const { prisma } = await import('./db');

@@ -1,3 +1,5 @@
+import { isKeyVaultReference } from '../startup';
+
 const isProduction = () => process.env.NODE_ENV === 'production';
 
 /** Valores de ejemplo publicados en el repositorio: nunca deben usarse en producción (S-13). */
@@ -11,6 +13,10 @@ export function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error('Falta JWT_SECRET en apps/api/.env (mínimo 32 caracteres). Revisa .env.example.');
+  }
+  // Segunda barrera, por si algún día se llama sin pasar por checkStartupConfig (server.ts).
+  if (isKeyVaultReference(secret)) {
+    throw new Error('JWT_SECRET es una referencia de Key Vault sin resolver: no se usará como secreto.');
   }
   if (isProduction() && EXAMPLE_SECRETS.has(secret)) {
     throw new Error(

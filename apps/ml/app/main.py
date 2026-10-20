@@ -11,7 +11,7 @@ Configuración (variables de entorno):
 import logging
 import os
 import secrets
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
@@ -23,6 +23,7 @@ from app.service import analyze
 log = logging.getLogger("kanban.ml")
 
 MIN_TOKEN_LENGTH = 32
+KEY_VAULT_REFERENCE = "@microsoft.keyvault("
 MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB alcanzan para los topes de schemas.py
 
 
@@ -30,8 +31,27 @@ def is_production() -> bool:
     return os.environ.get("ML_ENV") == "production"
 
 
+def unresolved_key_vault_references(env: Mapping[str, str] | None = None) -> list[str]:
+    """Nombres (nunca valores) de las variables que App Service no pudo leer de Key Vault.
+
+    Si la referencia no se resuelve, App Service pasa el texto "@Microsoft.KeyVault(...)"
+    tal cual: es público y mide más de 32 caracteres, así que pasaría el control de
+    longitud y cualquiera podría usarlo como token (S-13).
+    """
+    values = os.environ if env is None else env
+    return sorted(
+        name for name, value in values.items() if value.lstrip().lower().startswith(KEY_VAULT_REFERENCE)
+    )
+
+
 def check_config() -> None:
-    """En producción el servicio NO arranca sin un token fuerte (falla cerrado)."""
+    """El servicio NO arranca con secretos sin resolver ni, en producción, sin un token fuerte."""
+    unresolved = unresolved_key_vault_references()
+    if unresolved:
+        raise RuntimeError(
+            f"Key Vault no resolvió: {', '.join(unresolved)}. "
+            "Revisa el permiso de la identidad de la app sobre el secreto."
+        )
     token = os.environ.get("ML_TOKEN", "")
     if is_production() and len(token) < MIN_TOKEN_LENGTH:
         raise RuntimeError(
