@@ -18,6 +18,10 @@ expect_status() { # descripción, código esperado, curl args…
 echo "== Salud"
 expect_status "API /health (conecta a SQL Server)" 200 "$API/health"
 expect_status "ML /health" 200 "$ML/health"
+if [ -n "${EXPECTED_VERSION:-}" ]; then
+  v=$(curl -s "$API/health" | jq -r .version)
+  [ "$v" = "$EXPECTED_VERSION" ] && ok "la imagen informa su versión ($v)" || fail "versión: esperaba $EXPECTED_VERSION y llegó $v"
+fi
 
 echo "== Configuración de producción"
 expect_status "ML sin token → 401" 401 -X POST -H 'content-type: application/json' -d '{}' "$ML/analyze"

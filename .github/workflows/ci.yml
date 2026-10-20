@@ -250,6 +250,7 @@ jobs:
           context: .
           load: true
           tags: kanban-api:ci
+          build-args: APP_VERSION=${{ github.sha }}
           cache-from: type=gha,scope=api
           cache-to: type=gha,mode=max,scope=api
       - name: Construir la imagen del ML
@@ -275,6 +276,8 @@ jobs:
           echo "::error::Las imágenes no quedaron sanas en 2 minutos"; exit 1
       - name: Smoke test de las dos imágenes
         run: qa/smoke.sh
+        env:
+          EXPECTED_VERSION: ${{ github.sha }}
       - name: ZAP baseline (escaneo pasivo de seguridad)
         run: |
           mkdir -p zap && cp qa/zap/reglas.tsv zap/ && chmod -R 777 zap
@@ -329,8 +332,6 @@ jobs:
     env:
       IMAGE: ghcr.io/${{ github.repository }}
       PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-      # Opcional: URL del webhook de Azure (Centro de implementación) para redesplegar solo.
-      AZURE_WEBHOOK: ${{ secrets.AZURE_WEBAPP_WEBHOOK }}
     strategy:
       fail-fast: false
       matrix:
@@ -353,6 +354,7 @@ jobs:
           context: ${{ matrix.context }}
           load: true
           tags: kanban-${{ matrix.name }}:ci
+          build-args: APP_VERSION=${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.name }}
 
@@ -402,6 +404,7 @@ jobs:
         with:
           context: ${{ matrix.context }}
           push: true
+          build-args: APP_VERSION=${{ github.sha }}
           # Sin attestations dentro del manifiesto: Azure App Service espera una imagen simple.
           provenance: false
           tags: |
@@ -415,7 +418,54 @@ jobs:
           subject-name: ${{ env.IMAGE }}${{ matrix.suffix }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: false
-      - name: Avisar a Azure para que descargue la imagen nueva
-        if: env.PUBLISH == 'true' && matrix.name == 'api' && env.AZURE_WEBHOOK != ''
-        run: curl -fsS -X POST "$AZURE_WEBHOOK" -o /dev/null
 
+  deploy:
+    name: Despliegue en Azure (por digest)
+    # S-23: Azure corre la imagen EXACTA que pasó todas las pruebas (por digest, no :latest),
+    # y nunca hay dos despliegues a la vez. Sin credenciales guardadas: GitHub se identifica
+    # ante Azure con OIDC y una identidad federada que solo puede tocar las dos web apps.
+    # Hasta que se configuren las variables AZURE_* del repositorio, este job no corre.
+    needs: [docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != ''
+    runs-on: ubuntu-24.04
+    environment: produccion
+    concurrency:
+      group: deploy-produccion
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write # pedir el token OIDC para entrar a Azure
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}
+      RG: kanban-rg
+      APP: kanban-newbothi
+      ML: kanban-newbothi-ml
+      URL: https://kanban-newbothi.azurewebsites.net
+    steps:
+      - name: Digests de las imágenes de este commit
+        id: img
+        run: |
+          for s in "" "-ml"; do
+            d=$(docker buildx imagetools inspect "$IMAGE$s:$GITHUB_SHA" --format '{{json .Manifest}}' | jq -r .digest)
+            [[ "$d" == sha256:* ]] || { echo "::error::No encontré la imagen $IMAGE$s:$GITHUB_SHA"; exit 1; }
+            name=api; [ "$s" = "-ml" ] && name=ml
+            echo "$name=$IMAGE$s@$d" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Imagen${s}::$IMAGE$s@$d"
+          done
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Desplegar el servicio ML
+        run: az webapp config container set -g "$RG" -n "$ML" --container-image-name "${{ steps.img.outputs.ml }}" -o none
+      - name: Desplegar la app
+        run: az webapp config container set -g "$RG" -n "$APP" --container-image-name "${{ steps.img.outputs.api }}" -o none
+      - name: Esperar que la app responda con la versión nueva
+        run: |
+          for i in $(seq 1 60); do
+            v=$(curl -s --max-time 10 "$URL/health" | jq -r '.version // empty' 2>/dev/null || true)
+            [ "$v" = "$GITHUB_SHA" ] && { echo "::notice title=Desplegado::$URL sirve $v"; exit 0; }
+            sleep 10
+          done
+          echo "::error::La app no respondió con la versión $GITHUB_SHA en 10 minutos"; exit 1

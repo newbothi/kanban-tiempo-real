@@ -150,7 +150,9 @@ export async function buildApp(opts: BuildOptions = {}) {
 
   app.get('/health', async () => {
     await prisma.$queryRaw`SELECT 1`;
-    return { ok: true };
+    // El commit de la imagen (lo pone el CI al construirla): el despliegue comprueba con esto
+    // que Azure ya está sirviendo la versión nueva.
+    return { ok: true, version: process.env.APP_VERSION ?? 'dev' };
   });
 
   // Registro, login, logout, /me + el decorador app.authenticate
